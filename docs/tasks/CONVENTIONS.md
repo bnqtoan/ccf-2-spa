@@ -78,6 +78,24 @@ Logic nghiệp vụ đặt trong `src/worker/lib/` dưới dạng **hàm thuần
 đã load sẵn**, không tự query. Như vậy test được không cần DB, và tầng route chỉ
 lo load + gọi.
 
+### Đăng ký route — tránh xung đột khi chạy song song
+
+`src/worker/index.ts` **chỉ được sửa trong T-01**. Sau đó nó đứng yên.
+
+T-01 tạo `src/worker/routes/index.ts` làm điểm gom duy nhất:
+
+```ts
+// src/worker/routes/index.ts — T-01 tạo, các task sau chỉ THÊM DÒNG
+import type { Hono } from 'hono'
+export function registerRoutes(app: Hono) {
+  // mỗi task thêm đúng một dòng của mình vào đây
+}
+```
+
+Mỗi task sau thêm **một dòng** vào hàm này. Nhiều agent chạy song song cùng thêm
+một dòng ở cuối hàm thì git merge được; cùng sửa `index.ts` theo nhiều cách khác
+nhau thì không. Đây là lý do file này tồn tại — đừng gộp lại cho gọn.
+
 ## 8. Test
 
 - `tests/api/` dùng `@cloudflare/vitest-pool-workers` — D1 thật trong workerd,

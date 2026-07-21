@@ -13,6 +13,7 @@ touches:
   - vitest.config.ts
   - playwright.config.ts
   - src/worker/index.ts
+  - src/worker/routes/index.ts
   - src/app/
   - tests/api/smoke.test.ts
   - tests/e2e/smoke.spec.ts
@@ -66,14 +67,27 @@ hành vi transaction thật của SQLite; mock sẽ cho test xanh giả.
 2. `wrangler.jsonc`: `main` trỏ Worker, `compatibility_date` gần nhất,
    `d1_databases` binding tên `DB` (`database_name: "ccf-spa"`), `assets` cho SPA
    build output, `nodejs_compat` nếu cần.
-3. `src/worker/index.ts`: Hono app, mount `/api/health`, fallback trả SPA assets.
-4. `src/app/`: entry React + router 2 route.
-5. `vitest.config.ts` dùng `defineWorkersConfig`, trỏ `wrangler.jsonc`, bật
+3. `src/worker/index.ts`: Hono app, gọi `registerRoutes(app)`, fallback trả SPA
+   assets. **Đây là task duy nhất được sửa file này** — sau T-01 nó đứng yên.
+4. `src/worker/routes/index.ts`: điểm gom route duy nhất (CONVENTIONS §7). T-01
+   tạo khung + mount `/api/health`; mọi task sau chỉ **thêm một dòng** vào hàm
+   `registerRoutes`. Có file này thì T-05, T-07, T-08 chạy song song không giẫm
+   chân nhau; không có nó thì ba agent cùng sửa `index.ts` và merge sẽ vỡ.
+
+   ```ts
+   import type { Hono } from 'hono'
+   export function registerRoutes(app: Hono) {
+     app.get('/api/health', (c) => c.json({ ok: true }))
+     // các task sau thêm dòng của mình vào đây
+   }
+   ```
+5. `src/app/`: entry React + router 2 route.
+6. `vitest.config.ts` dùng `defineWorkersConfig`, trỏ `wrangler.jsonc`, bật
    D1 migrations dir (kể cả khi migrations còn rỗng).
-6. `tests/api/smoke.test.ts`: gọi `/api/health` qua `SELF.fetch`, assert 200.
-7. `playwright.config.ts`: `webServer` chạy `npm run dev`, baseURL localhost.
-8. `tests/e2e/smoke.spec.ts`: mở `/` và `/admin`, assert nội dung khác nhau.
-9. Chạy đủ 3 lệnh cho xanh: `npm run typecheck`, `npm test`, `npm run e2e`.
+7. `tests/api/smoke.test.ts`: gọi `/api/health` qua `SELF.fetch`, assert 200.
+8. `playwright.config.ts`: `webServer` chạy `npm run dev`, baseURL localhost.
+9. `tests/e2e/smoke.spec.ts`: mở `/` và `/admin`, assert nội dung khác nhau.
+10. Chạy đủ 3 lệnh cho xanh: `npm run typecheck`, `npm test`, `npm run e2e`.
 
 ## Quy ước bắt buộc
 Đọc `docs/tasks/CONVENTIONS.md` §7 (cấu trúc thư mục) và §8 (test).

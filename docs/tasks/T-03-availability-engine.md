@@ -10,7 +10,7 @@ touches:
   - src/worker/lib/intervals.ts
   - src/worker/lib/availability.ts
   - src/worker/routes/availability.ts
-  - src/worker/index.ts
+  - src/worker/routes/index.ts
   - tests/api/availability.test.ts
   - tests/unit/intervals.test.ts
 prd_refs: ["§3.1", "§4", "§11"]

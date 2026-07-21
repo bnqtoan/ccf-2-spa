@@ -10,7 +10,7 @@ touches:
   - src/worker/routes/admin-timeoff.ts
   - src/worker/routes/admin-reassign.ts
   - src/worker/db/timeoff.ts
-  - src/worker/index.ts
+  - src/worker/routes/index.ts
   - tests/api/timeoff-reassign.test.ts
 prd_refs: ["§8", "§9", "§11"]
 owner: null

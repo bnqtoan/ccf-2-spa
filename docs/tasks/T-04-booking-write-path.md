@@ -9,7 +9,7 @@ touches:
   - src/worker/lib/validate-booking.ts
   - src/worker/routes/bookings.ts
   - src/worker/db/bookings.ts
-  - src/worker/index.ts
+  - src/worker/routes/index.ts
   - tests/api/bookings.test.ts
 prd_refs: ["§5", "§11", "§9"]
 owner: null

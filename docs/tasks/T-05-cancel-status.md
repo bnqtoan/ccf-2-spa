@@ -9,7 +9,7 @@ touches:
   - src/worker/lib/status.ts
   - src/worker/routes/cancel.ts
   - src/worker/routes/admin-status.ts
-  - src/worker/index.ts
+  - src/worker/routes/index.ts
   - tests/api/cancel-status.test.ts
 prd_refs: ["§6", "§3.3", "§11"]
 owner: null
@@ -80,7 +80,7 @@ no_show; nó không tồn tại và không nên tồn tại.
 ## Đầu vào đã có
 - **T-04 để lại** route `POST /api/bookings`, bảng `appointments` +
   `booking_items` đã có dữ liệu thật để test dựa vào, và cấu trúc
-  `src/worker/routes/*.ts` + `src/worker/index.ts` để đăng ký route mới.
+  `src/worker/routes/*.ts` + `registerRoutes()` trong `src/worker/routes/index.ts` để đăng ký route mới.
 - `src/worker/lib/` là nơi đặt logic thuần không import D1 (CONVENTIONS §7) —
   hàm kiểm tra transition và cutoff thuộc `status.ts`, nhận dữ liệu đã load
   sẵn (status hiện tại, `start_at`, `now`, có phải admin hay không), không tự
@@ -106,7 +106,7 @@ no_show; nó không tồn tại và không nên tồn tại.
    - `POST /api/admin/bookings/:id/cancel` — set `cancelled` bất kể `now`,
      nhưng vẫn phải đang ở `booked` (huỷ cái đã huỷ/đã done vẫn là
      `INVALID_TRANSITION`)
-4. Đăng ký cả ba route trong `src/worker/index.ts`.
+4. Đăng ký cả ba route bằng cách thêm một dòng vào `registerRoutes()` trong `src/worker/routes/index.ts` (CONVENTIONS §7 — không sửa `src/worker/index.ts`).
 
 ## Quy ước bắt buộc
 `docs/tasks/CONVENTIONS.md` §1, §3, §5, §6, §7, §8.

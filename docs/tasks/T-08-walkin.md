@@ -7,7 +7,7 @@ effort: medium
 depends_on: ["T-04"]
 touches:
   - src/worker/routes/admin-walkin.ts
-  - src/worker/index.ts
+  - src/worker/routes/index.ts
   - tests/api/walkin.test.ts
 prd_refs: ["§7", "§11"]
 owner: null
@@ -100,7 +100,7 @@ khung giờ ngay sau đó.
        `block_end_at=now+duration+buffer`)
      - Trả 201 `{ appointment, item, staff, customer }`
    - Cả hai endpoint **không áp dụng kiểm tra lưới 15 phút** cho `start_at`.
-2. Đăng ký cả hai route trong `src/worker/index.ts`.
+2. Đăng ký cả hai route bằng cách thêm một dòng vào `registerRoutes()` trong `src/worker/routes/index.ts` (CONVENTIONS §7 — không sửa `src/worker/index.ts`).
 
 ## Quy ước bắt buộc
 `docs/tasks/CONVENTIONS.md` §1, §2, §3, §4, §5, §6 (đọc kỹ ngoại lệ walk-in

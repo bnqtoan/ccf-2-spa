@@ -54,6 +54,17 @@ T-01
 
 Tối đa 3–4 agent cùng lúc. Nhiều hơn thì xung đột file và review không xuể.
 
+### File dùng chung khi chạy song song
+
+`src/worker/routes/index.ts` bị 7 card cùng khai báo trong `touches`. Đây là
+**có chủ ý**: T-01 tạo hàm `registerRoutes()`, mỗi task sau chỉ **thêm đúng một
+dòng** vào đó (CONVENTIONS §7). Nhiều agent cùng thêm một dòng ở cuối một hàm
+thì git merge được; nếu để mỗi task tự sửa `src/worker/index.ts` theo cách riêng
+thì T-05/T-07/T-08 chạy song song sẽ đụng nhau chắc chắn.
+
+`src/worker/index.ts` **chỉ T-01 được sửa**. Các card khác không có nó trong
+`touches` — nếu thấy mình cần sửa file đó, dừng lại và báo.
+
 ## Vì sao chia model như vậy
 
 **Opus cho T-03, T-04, T-07** — ba chỗ sai thì đắt và **sai thì im lặng**:

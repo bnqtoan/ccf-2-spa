@@ -8,7 +8,7 @@ depends_on: ["T-02"]
 touches:
   - src/worker/routes/admin-crud.ts
   - src/worker/db/crud.ts
-  - src/worker/index.ts
+  - src/worker/routes/index.ts
   - tests/api/admin-crud.test.ts
 prd_refs: ["§9", "§3.2"]
 owner: null
@@ -82,7 +82,7 @@ nghiệp vụ mới.
 ## Đầu vào đã có
 - T-02 để lại: migration đủ 5 bảng trên + `src/worker/db/types.ts` có type
   từng bảng, index cần thiết đã tạo sẵn.
-- `src/worker/routes/` và `src/worker/index.ts` — nơi các route khác (T-03,
+- `src/worker/routes/` và `registerRoutes()` trong `src/worker/routes/index.ts` — nơi các route khác (T-03,
   T-04) đã đăng ký theo cùng khuôn `app.get/post(...)`; theo đúng khuôn đó khi
   thêm route mới, đừng đổi cấu trúc chung.
 
@@ -107,7 +107,7 @@ nghiệp vụ mới.
      thay vì tự đặt mã mới)
    - Vô hiệu hoá (`PATCH .../staff/:id { active: false }`) chỉ set cột
      `active`, không đụng dòng khác
-3. Đăng ký router trong `src/worker/index.ts`.
+3. Đăng ký router bằng cách thêm một dòng vào `registerRoutes()` trong `src/worker/routes/index.ts` (CONVENTIONS §7 — không sửa `src/worker/index.ts`).
 
 ## Quy ước bắt buộc
 `docs/tasks/CONVENTIONS.md` §3 (không xoá dòng có lịch sử — áp dụng tinh thần
