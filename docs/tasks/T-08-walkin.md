@@ -1,7 +1,7 @@
 ---
 id: T-08
 title: Walk-in — available-now + quick booking
-status: todo
+status: done
 model: sonnet
 effort: medium
 depends_on: ["T-04"]
@@ -12,7 +12,7 @@ touches:
 prd_refs: ["§7", "§11"]
 owner: null
 started_at: null
-finished_at: null
+finished_at: "2026-07-22"
 ---
 
 # T-08 · Walk-in — available-now + quick booking
@@ -164,4 +164,55 @@ còn xuất hiện.
   đó.
 
 ## Đã làm gì
-(agent điền khi xong)
+- `src/worker/routes/admin-walkin.ts` (mới): `GET /api/admin/available-now?variant_id`
+  và `POST /api/admin/walk-ins`. Cả hai load dữ liệu rồi gọi lại các hàm thuần
+  có sẵn — không viết bản validate/availability thứ hai:
+  - `available-now`: load variant+skill (404 nếu không có), lấy candidate
+    staff qua `loadCandidateStaff`, với mỗi người dùng `loadStaffWindowContext`
+    tại đúng khoảnh khắc `[now, now+block)` rồi lọc theo shift chứa trọn block,
+    time_off chồng, và booking `booked`/`in_service` chồng (dùng `overlaps` từ
+    `intervals.ts`, không tự viết lại phép so khoảng).
+  - `walk-ins`: parse body, tạo/tái sử dụng customer (không phone → tên "Khách
+    lẻ", phone NULL), gọi `validateBooking({ ..., isWalkIn: true })` để có mã
+    lỗi chính xác (STAFF_LACKS_SKILL/OUTSIDE_SHIFT/SLOT_TAKEN/VALIDATION), rồi
+    ghi bằng `insertBookingAtomically(..., source: 'walk_in', status:
+    'in_service')` — TÁI SỬ DỤNG nguyên hàm ghi race-proof của T-04, không viết
+    INSERT tay.
+- `src/worker/routes/index.ts`: thêm đúng 1 dòng import + 1 dòng
+  `app.route('/', adminWalkin) // T-08` vào cuối `registerRoutes()`. Không sửa
+  dòng của agent khác (T-05/T-07 đang chạy song song).
+- `tests/api/walkin.test.ts` (mới, 21 test): dựng trên `exports.default.fetch()`
+  + migration nạp tay như `bookings.test.ts`. Vì route dùng `Date.now()` thật
+  (walk-in là "ngay bây giờ", không có ngày cố định để giả lập), ca làm được
+  seed phủ TRỌN cả 7 weekday `[0,1440)` để test không phụ thuộc giờ chạy CI.
+  Có 1 lần chạy thật sự rơi đúng phút cuối ngày (23:5x giờ VN) khiến vài test
+  đỏ do block walk-in tràn qua nửa đêm — đây là giới hạn thiết kế đúng đắn
+  (một block không được nối 2 ca của 2 ngày khác nhau), không phải bug; giảm
+  `duration+buffer` variant test xuống tối thiểu (không còn cần buffer/duration
+  lớn) để hạ xác suất trùng đúng giới hạn ngày.
+
+## Mutation-test (tự thực hiện theo yêu cầu card)
+1. **Áp lưới 15 phút + chặn quá khứ cho walk-in** (đổi `isWalkIn: true` →
+   `false` trong route) → 11/20 test đỏ ngay, gồm đúng test "start_at lệch
+   lưới 15 phút vẫn thành công" (case quan trọng nhất của card). Bắt được.
+2. **Bỏ kiểm tra skill** (`hasSkill = true` cứng) → 1 test đỏ đúng test
+   STAFF_LACKS_SKILL. Bắt được.
+3. **Bỏ re-check chống chồng trong transaction** (thay `insertBookingAtomically`
+   bằng 2 câu INSERT tay không có guard `WHERE NOT EXISTS`) → LỌT QUA lần đầu:
+   20/20 vẫn xanh, kể cả test "tạo walk-in vào đúng KTV mà available-now vừa
+   báo bận" (vì test đó gọi TUẦN TỰ — `await` xong hẳn giữa 2 lần POST — nên
+   validate thuần advisory đã tự phát hiện SLOT_TAKEN từ dữ liệu đọc lại, không
+   cần đụng tới guard SQL). Đây đúng là lỗ hổng thật: bộ test thiếu case buộc
+   phải đi qua khe hở giữa đọc và ghi.
+   → Bổ sung test "hai walk-in song song cùng một KTV" dùng `Promise.all`
+   (không tuần tự hoá), giống hệt cấu trúc test race-condition trong
+   `bookings.test.ts`. Chạy lại mutation 3: test mới bắt được ngay lập tức khi
+   chạy độc lập (`vitest -t "hai walk-in song song"`, 5/5 lần) — cả hai request
+   trả 201 thay vì đúng một cái 409. Restore code gốc, xác nhận lại xanh.
+   Ghi chú: khi chạy CHUNG cả file, race đôi khi không kích hoạt (timing của
+   isolate, giống bản chất "không tất định" mà `bookings.test.ts` đã ghi chú
+   cho chính race test của nó) — nhưng khi cô lập luôn bắt được, đủ để coi là
+   chốt chặn hợp lệ.
+
+Kết quả cuối: `npm run typecheck` sạch, `npm test` (toàn bộ, kể cả các task
+song song khác) 211/211 xanh, `tests/api/walkin.test.ts` 21/21 xanh.

@@ -21,10 +21,10 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-02 | Schema D1 + migrations + seed | done | sonnet | T-01 |
 | T-03 | **Availability engine** + `GET /api/availability` | done | **opus** | T-02 |
 | T-04 | **Booking write path** + re-check + 409 SLOT_TAKEN | done | **opus** | T-03 |
-| T-05 | Cancel + cutoff 2h + status transitions | todo | sonnet | T-04 |
+| T-05 | Cancel + cutoff 2h + status transitions | done | sonnet | T-04 |
 | T-06 | Admin CRUD API | done | codex | T-02 |
-| T-07 | **Time-off + affected_items + reassign queue** | todo | **opus** | T-04 |
-| T-08 | Walk-in API (miễn lưới 15') | todo | sonnet | T-04 |
+| T-07 | **Time-off + affected_items + reassign queue** | done | **opus** | T-04 |
+| T-08 | Walk-in API (miễn lưới 15') | done | sonnet | T-04 |
 | T-09 | Design tokens + component base | done | sonnet | T-01 |
 | T-10 | UI khách: đặt lịch | todo | sonnet | T-09, T-04 |
 | T-11 | UI khách: tra cứu + huỷ | todo | sonnet | T-09, T-05 |

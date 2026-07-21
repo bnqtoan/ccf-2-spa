@@ -1,7 +1,7 @@
 ---
 id: T-07
 title: Time-off + affected_items + reassign queue API
-status: todo
+status: done
 model: opus
 effort: high
 depends_on: ["T-04"]
@@ -15,7 +15,7 @@ touches:
 prd_refs: ["§8", "§9", "§11"]
 owner: null
 started_at: null
-finished_at: null
+finished_at: "2026-07-21"
 ---
 
 # T-07 · Time-off + affected_items + reassign queue
@@ -103,13 +103,13 @@ Nhấn lại: chồng nhau là `a.start < b.end && b.start < a.end`. Nghỉ phé
 đúng lúc `block_end_at` của một booking thì **không** ảnh hưởng booking đó.
 
 ## Checklist đầu ra
-- [ ] `npm run typecheck` xanh
-- [ ] `npm test -- tests/api/timeoff-reassign.test.ts` xanh
-- [ ] `npm test` toàn bộ vẫn xanh
-- [ ] `reassign` gọi lại `validate-booking.ts` của T-04, không tự viết lại luật
-- [ ] Không đụng file ngoài `touches`
-- [ ] Cập nhật `status: review` + `finished_at`
-- [ ] Ghi "Đã làm gì"
+- [x] `npm run typecheck` xanh
+- [x] `npm test -- tests/api/timeoff-reassign.test.ts` xanh
+- [x] `npm test` toàn bộ vẫn xanh
+- [x] `reassign` gọi lại `validate-booking.ts` của T-04, không tự viết lại luật
+- [x] Không đụng file ngoài `touches`
+- [x] Cập nhật `status: review` + `finished_at`
+- [x] Ghi "Đã làm gì"
 
 ## Test phải viết
 `tests/api/timeoff-reassign.test.ts`
@@ -155,4 +155,63 @@ còn 1 item chưa xử lý.
   phần buffer vẫn khiến KTV không kịp dọn dẹp, vẫn phải vào hàng chờ.
 
 ## Đã làm gì
-(agent điền khi xong)
+
+5 endpoint, 4 file mới + 1 dòng vào `registerRoutes()`. Test: 45 case trong
+`tests/api/timeoff-reassign.test.ts`, xanh. Toàn bộ `npm test` xanh 211/211,
+`npm run typecheck` sạch.
+
+### Một bộ luật, một chỗ
+`reassign` KHÔNG có luật riêng. Cả hai endpoint reassign đều gọi lại đúng
+`validateBooking()` của T-04 — cùng hàm mà `POST /api/bookings` gọi.
+`src/worker/lib/reassign.ts` chỉ làm đúng hai việc: gọi hàm đó một lần cho mỗi
+ứng viên, và dịch mã lỗi sang câu tiếng Việt cho lễ tân. Nếu viết lại luật ở đây
+thì reassign trở thành cửa sau tạo double-booking — cạm bẫy nguy hiểm nhất card
+đã cảnh báo.
+
+Hai điều chỉnh có chủ ý khi gọi lại hàm đó, vì reassign là *cứu* lịch đã tồn tại
+chứ không phải *tạo* lịch mới:
+- `now = item.start_at` — nếu chấm theo đồng hồ thật thì mọi lịch sắp tới giờ sẽ
+  thành "không đặt được trong quá khứ", đúng lúc lễ tân đang cuống lên chuyển
+  khách. Luật "không đặt quá khứ" thuộc về việc tạo mới.
+- `isWalkIn: true` — chỉ để bỏ luật lưới 15 phút: `start_at` của item đã được
+  chấp nhận từ lúc tạo, và walk-in vốn lệch lưới thì vẫn phải chuyển được.
+Mọi luật còn lại (skill, ca làm, nghỉ phép, chồng giờ) áp dụng nguyên vẹn.
+
+### Chống tranh chấp: điều kiện nằm trong câu UPDATE
+Theo đo đạc của T-04: `batch()` nguyên tử nhưng không chạy được JS giữa các câu;
+`BEGIN/COMMIT` bị D1 từ chối thẳng. Nên "đọc → quyết trong JS → ghi" không thể
+nguyên tử. `reassignItemAtomically()` vì thế đặt cả bốn điều kiện THẲNG trong
+`UPDATE ... WHERE`: item còn sống, KTV mới không chồng item khác, KTV mới không
+nghỉ phép, và `other.id <> ?` để item không tự chồng lên chính nó. `meta.changes`
+là phán quyết. Test "hai reassign song song vào cùng KTV" dùng `Promise.all`,
+đúng một cái thắng.
+
+### Hàng chờ suy ra, không có cột cờ
+`loadReassignQueue()` là một `EXISTS` join sang `time_off` — không có
+`is_orphaned` ở đâu cả. Hệ quả kiểm chứng bằng test: xoá time-off → hàng chờ
+rỗng; huỷ booking → nó tự rời hàng chờ; reassign xong → nó tự rời. Không có gì
+phải đồng bộ nên không có gì lệch được.
+
+### Nghiệp vụ giữ đúng
+- `POST /api/admin/time-off` luôn 200, kể cả khi có booking bị phủ. Không 409.
+- Item bị ảnh hưởng giữ nguyên `status='booked'` và `staff_id` cũ (có test khẳng
+  định cả trong DB lẫn trong response). Không tự huỷ, không tự chuyển.
+- `affected_items` kèm tên khách, số điện thoại, tên dịch vụ, giờ hẹn — đủ để gọi.
+- `reassign-candidates` trả MỌI KTV active khác kèm `eligible` + `reason`, tách
+  riêng `ON_TIME_OFF` khỏi `SLOT_TAKEN` vì "đang nghỉ" và "đang bận khách khác"
+  dẫn tới hai cuộc gọi khác nhau.
+
+### Mutation test (10 đột biến)
+8 bị bắt ngay. 2 lọt → đã bổ sung test rồi xác nhận lại chuyển đỏ:
+- Đổi `block_end_at` → `end_at` trong câu truy vấn HÀNG CHỜ lọt qua (case buffer
+  chỉ được phủ ở đường `affected_items`, chưa phủ ở đường hàng chờ). Thêm 2 test
+  biên cho hàng chờ.
+- Bỏ `other.id <> ?` trong câu UPDATE lọt qua, vì item đang chuyển luôn thuộc KTV
+  cũ nên chưa bao giờ lọt vào tập bận của KTV mới. Thêm test gọi thẳng tầng DB
+  với KTV đích = KTV đang giữ item.
+
+Còn một tham số `excludeItemId` của `loadWindowContextForStaff` không có test bắt
+được: hai caller hiện tại không bao giờ truyền KTV đang giữ item vào (candidates
+loại chủ sở hữu, reassign chặn tự-gán bằng 422). Đã ghi rõ trong comment tại chỗ
+thay vì giả vờ là có phủ — nó ở lại vì là tiền điều kiện của HỢP ĐỒNG hàm, không
+phải của call site hiện tại.
