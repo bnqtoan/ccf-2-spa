@@ -11,7 +11,7 @@ touches:
   - tests/e2e/customer-booking.spec.ts
 prd_refs: ["§10", "§4"]
 owner: null
-started_at: null
+started_at: "2026-07-22"
 finished_at: null
 ---
 
@@ -165,5 +165,50 @@ Chạy `npm run e2e -- tests/e2e/customer-booking.spec.ts` trên app thật (Wor
   theo đúng tinh thần văn phong prototype.
 
 ## Đã làm gì
-(agent điền khi xong)
+
+**status: blocked** — dừng trước khi viết UI vì thiếu API nền tảng bắt buộc.
+
+Card ghi ở "Đầu vào đã có": *"T-04 để lại các endpoint đã chạy thật:
+`GET /api/services` ..."* — điều này **sai thực tế**. Đã kiểm chứng bằng 3 cách:
+
+1. `grep -rn "api/services\b"` toàn repo (loại trừ `node_modules`, `docs/`):
+   không có kết quả nào trong `src/`. Route `GET /api/services` (public, kèm
+   variants lồng sẵn, PRD §9) chưa từng được viết ở đâu.
+2. Đọc lại chính card T-04 (`docs/tasks/T-04-*.md`, status: done): phần "Phạm vi
+   → Trong" chỉ liệt kê `POST /api/bookings` và `GET /api/bookings?phone=`.
+   `GET /api/services` không nằm trong scope T-04 — T-04 không hề bỏ sót, nó
+   chưa bao giờ được giao cho ai.
+3. Chạy thật `npm run dev`, curl trực tiếp:
+   - `GET /api/services` → `404 Not Found`
+   - `GET /api/admin/services` (route admin CRUD, khác hình dạng — flat, không
+     nested variants, không lọc active) → `500 Internal Server Error`
+   - `GET /api/health` → `200 {"ok":true}` (worker chạy bình thường, chỉ thiếu
+     đúng route này)
+
+Toàn bộ luồng bắt buộc theo card (màn `ServiceList` là bước đầu tiên) phụ thuộc
+trực tiếp vào endpoint này. Không có nó thì không dựng được `ServiceList`, và
+test e2e bắt buộc *"đi hết luồng ... tạo được lịch thật (201)"* không thể chạy
+trên app thật.
+
+`touches` của T-10 chỉ cho phép sửa `src/app/routes/booking/`,
+`src/app/api/client.ts`, `tests/e2e/customer-booking.spec.ts` — không có quyền
+thêm/sửa file trong `src/worker/`. Theo CONVENTIONS §9 ("Chỉ đụng file khai báo
+trong touches. Cần thêm file → báo trước.") và quy tắc "test đỏ mà không sửa
+được → status: blocked, ghi lý do, dừng lại", không tự ý viết route
+`GET /api/services` để tự gỡ block cho mình.
+
+**Không có file nào trong `touches` bị đụng tới** — dừng ở bước khảo sát trước
+khi viết bất kỳ dòng code UI nào, vì viết trước khi có API thật sẽ phải đoán
+hình dạng response và làm lại.
+
+**Cần một task/agent khác (ngoài phạm vi T-10) bổ sung:**
+`GET /api/services` — trả về services active kèm mảng `variants` lồng sẵn (chỉ
+variant active), theo đúng PRD §9. Gợi ý: tương tự `crud.listServices` +
+`crud.listVariants` hiện có trong `src/worker/db/crud.ts`, nhưng lọc
+`active = 1` ở cả hai cấp và gộp variants vào từng service, mount qua
+`src/worker/routes/index.ts` (thêm đúng một dòng theo CONVENTIONS §7).
+
+Sau khi endpoint này có thật và trả đúng hình dạng
+`[{ id, name, ..., variants: [{ id, name, duration_min, buffer_after_min,
+price, ... }] }]`, có thể chạy lại T-10 để tiếp tục từ đây.
 </content>

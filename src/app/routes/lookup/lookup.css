@@ -1,0 +1,99 @@
+/*
+ * Styles riêng cho màn tra cứu lịch (T-11). Prefix "ccf-lk-" để không đụng
+ * `src/app/components/components.css` (ngoài touches của card này) và không
+ * trùng tên với style của T-10/T-12 đang chạy song song.
+ * Đối chiếu prototype/index.html dòng 88-232 (.label, .row, .bk, .tel, .acts).
+ */
+
+.ccf-lk-page {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 20px 18px calc(24px + env(safe-area-inset-bottom));
+}
+
+.ccf-lk-h2 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 4px 0 6px;
+}
+
+.ccf-lk-lede {
+  color: var(--ink-2);
+  font-size: 15px;
+  margin: 0 0 18px;
+}
+
+.ccf-lk-label {
+  font-size: 13px;
+  font-weight: 640;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin: 22px 0 10px;
+}
+.ccf-lk-label:first-of-type {
+  margin-top: 4px;
+}
+
+.ccf-lk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ccf-lk-bk {
+  border: 1.5px solid var(--line);
+  border-radius: var(--r);
+  padding: 14px;
+  margin-bottom: 11px;
+  background: var(--white);
+}
+.ccf-lk-bk.ccf-lk-bk--past {
+  opacity: 0.62;
+}
+
+.ccf-lk-when {
+  font-weight: 660;
+  font-size: 17px;
+}
+
+.ccf-lk-what {
+  color: var(--ink-2);
+  font-size: 15px;
+  margin-top: 3px;
+}
+
+.ccf-lk-acts {
+  margin-top: 12px;
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.ccf-lk-acts .ccf-btn {
+  width: auto;
+  flex: 1;
+}
+
+/* Thẻ gọi điện thay thế nút Huỷ khi <2 tiếng. Vùng chạm >= 48px (--tap),
+   chữ >= 15px — yêu cầu bắt buộc của card cho khách phổ thông trên điện thoại. */
+.ccf-lk-tel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  min-height: var(--tap);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--g-800);
+  background: var(--white);
+  border: 1.5px solid var(--warn-line);
+  border-radius: var(--r-sm);
+  text-decoration: none;
+}
+
+.ccf-lk-notice-margin {
+  margin: 12px 0 0;
+}

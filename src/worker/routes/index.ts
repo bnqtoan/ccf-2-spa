@@ -7,6 +7,9 @@ import adminStatus from './admin-status.ts'
 import cancel from './cancel.ts'
 import adminTimeoff from './admin-timeoff.ts'
 import adminReassign from './admin-reassign.ts'
+import services from './services.ts'
+import adminSchedule from './admin-schedule.ts'
+import adminAppointmentItems from './admin-appointment-items.ts'
 
 /**
  * Điểm gom route duy nhất (CONVENTIONS §7).
@@ -24,5 +27,8 @@ export function registerRoutes(app: Hono) {
   app.route('/', adminWalkin) // T-08
   app.route('/', adminTimeoff) // T-07
   app.route('/', adminReassign) // T-07
+  app.route('/', services) // T-16
+  app.route('/', adminSchedule) // T-16
+  app.route('/', adminAppointmentItems) // T-16
   // các task sau thêm dòng của mình vào đây
 }

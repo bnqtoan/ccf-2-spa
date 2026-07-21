@@ -173,5 +173,42 @@ kiểm chứng bằng `npm run e2e -- tests/e2e/admin-timeline.spec.ts`.
   vẫn cần rút gọn hoặc không, tuỳ cách bố trí đã chọn.
 
 ## Đã làm gì
-(agent điền khi xong)
+
+**BLOCKED trước khi viết code UI.** Lý do:
+
+Card ghi (dòng 91-94) "T-07 để lại endpoint `GET /api/admin/schedule?date=`",
+nhưng đã kiểm tra kỹ:
+- `docs/tasks/T-07-timeoff-reassign.md` (status: done) — phần "Phạm vi"/"Việc
+  phải làm"/`touches` chỉ liệt kê 5 endpoint: `POST /api/admin/time-off`,
+  `DELETE /api/admin/time-off/:id`, `GET /api/admin/reassign-queue`,
+  `GET /api/admin/bookings/:id/reassign-candidates`,
+  `POST /api/admin/bookings/:id/reassign`. Không có `GET /api/admin/schedule`.
+- `src/worker/routes/index.ts` chỉ mount 8 route module hiện có, không route
+  nào khớp `/api/admin/schedule`.
+- `grep -rn "admin/schedule" .` toàn repo chỉ khớp trong `docs/PRD.md` §9
+  (định nghĩa hợp đồng API) và trong chính các task card (T-12, T-14) — không
+  có implementation nào.
+
+Kết luận: `GET /api/admin/schedule?date=` — endpoint mà toàn bộ bước 1 của
+"Việc phải làm" và "Định nghĩa xong" của card này dựa vào — **chưa từng được
+implement** ở bất kỳ task nào đã đóng. Đây là khoảng trống thật giữa T-07 và
+T-12, không phải hiểu nhầm tài liệu.
+
+Không tự sửa vì: file cần tạo (route mới) và file cần sửa (`index.ts`) đều
+nằm ngoài `touches` của T-12; `index.ts` theo CONVENTIONS §7 "chỉ được sửa
+trong T-01" (đã đóng); có 2 agent khác (T-10, T-11) đang chạy song song nên
+càng không tự ý phá quy ước phối hợp. Đây là thiếu API tầng backend, vượt
+phạm vi "UI admin timeline" mà card giao cho T-12.
+
+Chưa viết code UI/test nào — vì "Định nghĩa xong" đòi hỏi seed time-off qua
+API thật rồi xem kết quả render trên timeline, không thể làm thiếu endpoint
+nguồn dữ liệu chính.
+
+Đề xuất hướng đi (cần quyết định, không tự chọn thay):
+1. Bổ sung `GET /api/admin/schedule?date=` vào backend trước (task riêng hoặc
+   nối vào T-07), rồi mở lại T-12.
+2. Hoặc mở rộng `touches` của T-12 thêm đúng 2 file
+   (`src/worker/routes/admin-schedule.ts` mới + 1 dòng vào `index.ts`) để tự
+   implement — endpoint này không có logic nghiệp vụ mới, chỉ SELECT
+   `booking_items` JOIN `staff/customers/services/variants` theo ngày.
 </content>
