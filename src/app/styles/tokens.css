@@ -1,0 +1,70 @@
+/*
+ * Design tokens — trích nguyên văn từ prototype/index.html (dòng 8-24).
+ * KHÔNG đổi giá trị. Đây là port, không phải thiết kế lại.
+ * Nguồn: prototype/index.html <style> :root { ... } + @media(prefers-reduced-motion:reduce)
+ */
+:root {
+  --g-900: #14342a;
+  --g-800: #1c4a3a;
+  --g-700: #26654f;
+  --g-600: #2f8064;
+  --g-500: #3d9b7a;
+  --g-300: #8fc9b3;
+  --g-100: #dff0e8;
+  --g-50: #f1f8f4;
+  --ink: #16241f;
+  --ink-2: #4a5f57;
+  --ink-3: #7d918a;
+  --line: #e6efe9;
+  --bg: #f4f8f5;
+  --white: #fff;
+  --warn-bg: #fff6e6;
+  --warn-line: #f0d9a8;
+  --warn-ink: #7a5714;
+  --danger: #b4342b;
+  --danger-bg: #fdeceb;
+  --sand: #f6f2e9;
+  --r: 18px;
+  --r-sm: 13px;
+  --shadow: 0 1px 2px rgba(20, 52, 42, 0.05), 0 10px 30px -12px rgba(20, 52, 42, 0.16);
+  --shadow-lift: 0 2px 6px rgba(20, 52, 42, 0.07), 0 18px 42px -16px rgba(20, 52, 42, 0.24);
+  --ease: cubic-bezier(0.22, 0.68, 0.32, 1);
+  --tap: 48px;
+}
+
+/*
+ * Base reset — port từ prototype/index.html.
+ * Thiếu khối này thì body rơi về serif mặc định của trình duyệt (Times) và
+ * cỡ chữ 16px, lệch hẳn so với prototype (system sans-serif, 17px).
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', sans-serif;
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
