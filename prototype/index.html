@@ -1,0 +1,1033 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sen Spa — Prototype</title>
+<style>
+:root{
+  --g-900:#14342a; --g-800:#1c4a3a; --g-700:#26654f; --g-600:#2f8064;
+  --g-500:#3d9b7a; --g-300:#8fc9b3; --g-100:#dff0e8; --g-50:#f1f8f4;
+  --ink:#16241f; --ink-2:#4a5f57; --ink-3:#7d918a;
+  --line:#e6efe9; --bg:#f4f8f5; --white:#fff;
+  --warn-bg:#fff6e6; --warn-line:#f0d9a8; --warn-ink:#7a5714;
+  --danger:#b4342b; --danger-bg:#fdeceb;
+  --sand:#f6f2e9;              /* warm neutral, keeps the green from going cold */
+  --r:18px; --r-sm:13px;
+  --shadow:0 1px 2px rgba(20,52,42,.05), 0 10px 30px -12px rgba(20,52,42,.16);
+  --shadow-lift:0 2px 6px rgba(20,52,42,.07), 0 18px 42px -16px rgba(20,52,42,.24);
+  --ease:cubic-bezier(.22,.68,.32,1);
+  --tap:48px;
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  color:var(--ink); font-size:17px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  /* layered wash: two soft light sources over a warm base */
+  background:
+    radial-gradient(1100px 620px at 12% -8%,  rgba(143,201,179,.34), transparent 62%),
+    radial-gradient(900px 560px at 96% 4%,   rgba(246,242,233,.85), transparent 58%),
+    radial-gradient(760px 520px at 50% 108%, rgba(61,155,122,.13), transparent 64%),
+    var(--bg);
+  background-attachment:fixed;
+}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
+input,select{font:inherit;color:inherit}
+
+/* ---------- shell ---------- */
+.phone{max-width:440px;margin:0 auto;min-height:100vh;position:relative;
+  display:flex;flex-direction:column;
+  /* translucent so the page wash reads through the top of the app */
+  background:linear-gradient(180deg,rgba(255,255,255,.55) 0,rgba(255,255,255,.93) 200px,#fff 380px);
+  box-shadow:0 0 0 1px rgba(20,52,42,.04), 0 30px 90px -30px rgba(20,52,42,.28)}
+@media(min-width:960px){ .phone{margin:26px auto;min-height:calc(100vh - 52px);border-radius:28px;overflow:hidden} }
+.admin-mode .phone{max-width:100%;border-radius:0;margin:0;min-height:100vh}
+
+/* ---------- top bar ---------- */
+.bar{position:sticky;top:0;z-index:30;padding:10px 150px 10px 14px;
+  display:flex;align-items:center;gap:10px;min-height:62px;
+  background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(255,255,255,.78));
+  backdrop-filter:saturate(1.4) blur(14px);
+  -webkit-backdrop-filter:saturate(1.4) blur(14px);
+  border-bottom:1px solid rgba(20,52,42,.06)}
+/* faint botanical mark, decorative only */
+.bar::after{content:'';position:absolute;right:-26px;top:-34px;width:132px;height:132px;
+  pointer-events:none;opacity:.5;
+  background:radial-gradient(circle at 30% 70%, rgba(143,201,179,.5), transparent 62%);
+  border-radius:50% 50% 50% 8%}
+.bar h1{font-size:18px;margin:0;font-weight:650;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .sub{font-size:13px;color:var(--ink-3);margin-top:1px}
+.iconbtn{width:var(--tap);height:var(--tap);border-radius:12px;display:grid;place-items:center;
+  margin-left:-8px;font-size:22px;color:var(--g-700)}
+.iconbtn:active{background:var(--g-50)}
+
+/* progress */
+.steps{display:flex;gap:6px;padding:0 14px 12px;background:var(--white)}
+.steps i{height:4px;flex:1;border-radius:99px;background:var(--line)}
+.steps i.on{background:var(--g-500)}
+
+/* ---------- content ---------- */
+main{flex:1;padding:18px 14px 120px;animation:in .34s var(--ease)}
+@keyframes in{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+/* cards arrive in a gentle cascade rather than all at once */
+main .card{animation:rise .4s var(--ease) both}
+main .card:nth-child(2){animation-delay:.03s}
+main .card:nth-child(3){animation-delay:.06s}
+main .card:nth-child(4){animation-delay:.09s}
+main .card:nth-child(5){animation-delay:.12s}
+main .card:nth-child(6){animation-delay:.15s}
+@keyframes rise{from{opacity:0;transform:translateY(11px)}to{opacity:1;transform:none}}
+.h2{font-size:22px;font-weight:680;letter-spacing:-.02em;margin:2px 0 4px}
+.lede{color:var(--ink-2);font-size:15px;margin:0 0 18px}
+.label{font-size:13px;font-weight:640;color:var(--ink-3);text-transform:uppercase;
+  letter-spacing:.05em;margin:22px 0 10px}
+.label:first-child{margin-top:4px}
+
+/* ---------- cards ---------- */
+.card{background:var(--white);border:1.5px solid var(--line);border-radius:var(--r);
+  padding:15px;margin-bottom:11px;width:100%;text-align:left;display:block;
+  position:relative;overflow:hidden;box-shadow:var(--shadow);
+  transition:border-color .2s var(--ease), box-shadow .25s var(--ease),
+             transform .2s var(--ease), background .2s var(--ease)}
+@media(hover:hover){ .card:hover{box-shadow:var(--shadow-lift);transform:translateY(-1px)} }
+.card:active{transform:scale(.988);box-shadow:var(--shadow)}
+.card.sel{border-color:var(--g-500);
+  background:linear-gradient(140deg,var(--g-50),rgba(255,255,255,.6));
+  box-shadow:0 0 0 3px rgba(61,155,122,.1), var(--shadow)}
+/* selected cards get a soft leaf glow in the corner */
+.card.sel::after{content:'';position:absolute;right:-30px;bottom:-30px;width:110px;height:110px;
+  background:radial-gradient(circle,rgba(143,201,179,.4),transparent 68%);pointer-events:none}
+.card .t{font-weight:620;font-size:17px}
+.card .d{color:var(--ink-2);font-size:14px;margin-top:3px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.price{font-weight:660;color:var(--g-700);white-space:nowrap}
+.chev{color:var(--g-300);font-size:20px}
+
+.pill{display:inline-block;padding:3px 9px;border-radius:99px;font-size:12px;
+  font-weight:620;background:var(--g-100);color:var(--g-800)}
+.pill.gray{background:#eef2f0;color:var(--ink-3)}
+.pill.warn{background:var(--warn-bg);color:var(--warn-ink)}
+.pill.red{background:var(--danger-bg);color:var(--danger)}
+
+/* ---------- dates ---------- */
+.dates{display:flex;gap:8px;overflow-x:auto;padding:2px 14px 4px;margin:0 -14px;
+  scrollbar-width:none}
+.dates::-webkit-scrollbar{display:none}
+.date{flex:0 0 auto;width:62px;padding:11px 0;border-radius:15px;text-align:center;
+  border:1.5px solid var(--line);background:var(--white);
+  transition:transform .18s var(--ease), box-shadow .22s var(--ease),
+             background .22s var(--ease), border-color .18s var(--ease)}
+.date .dw{font-size:12px;color:var(--ink-3);transition:color .2s var(--ease)}
+.date .dd{font-size:19px;font-weight:660;margin-top:2px}
+.date:active{transform:scale(.95)}
+.date.sel{background:linear-gradient(160deg,var(--g-600),var(--g-800));
+  border-color:transparent;color:#fff;
+  box-shadow:0 6px 18px -6px rgba(38,101,79,.6)}
+.date.sel .dw{color:var(--g-300)}
+
+/* ---------- slots ---------- */
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+@media(min-width:400px){.slots{grid-template-columns:repeat(4,1fr)}}
+.slot{padding:14px 0;border-radius:14px;border:1.5px solid var(--line);
+  background:var(--white);font-weight:620;font-size:16px;text-align:center;
+  min-height:var(--tap);box-shadow:0 1px 2px rgba(20,52,42,.04);
+  transition:transform .16s var(--ease), background .2s var(--ease),
+             box-shadow .22s var(--ease), border-color .18s var(--ease)}
+@media(hover:hover){ .slot:hover:not(:disabled){border-color:var(--g-300);background:var(--g-50)} }
+.slot:active:not(:disabled){transform:scale(.94)}
+.slot.sel{background:linear-gradient(160deg,var(--g-600),var(--g-800));
+  border-color:transparent;color:#fff;
+  box-shadow:0 8px 20px -7px rgba(38,101,79,.65)}
+.slot:disabled{opacity:.32;text-decoration:line-through;cursor:not-allowed}
+.daypart{font-size:14px;font-weight:640;color:var(--ink-2);margin:18px 0 9px}
+.daypart:first-child{margin-top:0}
+
+/* ---------- form ---------- */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:14px;font-weight:620;margin-bottom:6px}
+.field input,.field select{width:100%;padding:14px;border-radius:14px;
+  border:1.5px solid var(--line);background:rgba(255,255,255,.85);
+  min-height:var(--tap);font-size:17px;
+  transition:border-color .18s var(--ease), box-shadow .22s var(--ease), background .2s var(--ease)}
+.field input:focus,.field select:focus{outline:none;border-color:var(--g-500);background:#fff;
+  box-shadow:0 0 0 4px rgba(61,155,122,.13)}
+.field input::placeholder{color:#adbdb6}
+.hint{font-size:13px;color:var(--ink-3);margin-top:5px}
+
+/* ---------- summary ---------- */
+.summary{border:1.5px solid var(--g-100);border-radius:var(--r);padding:16px;margin-bottom:16px;
+  background:linear-gradient(150deg,var(--g-50) 0%, rgba(246,242,233,.55) 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
+.sline{display:flex;justify-content:space-between;gap:14px;padding:7px 0;font-size:15px}
+.sline + .sline{border-top:1px solid var(--g-100)}
+.sline .k{color:var(--ink-2)}
+.sline .v{font-weight:620;text-align:right}
+.sline.total .v{color:var(--g-700);font-size:18px}
+
+/* ---------- bottom action ---------- */
+.dock{position:sticky;bottom:0;z-index:20;
+  padding:13px 14px calc(13px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.97) 46%);
+  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  border-top:1px solid rgba(20,52,42,.06)}
+.btn{width:100%;min-height:54px;border-radius:16px;color:#fff;
+  background:linear-gradient(160deg,var(--g-600),var(--g-800));
+  font-weight:660;font-size:17px;display:grid;place-items:center;
+  box-shadow:0 10px 24px -10px rgba(28,74,58,.75);
+  transition:transform .16s var(--ease), box-shadow .24s var(--ease), filter .2s var(--ease)}
+@media(hover:hover){ .btn:hover:not(:disabled){filter:brightness(1.06);
+  box-shadow:0 14px 30px -10px rgba(28,74,58,.8)} }
+.btn:active:not(:disabled){transform:scale(.982);
+  box-shadow:0 6px 16px -8px rgba(28,74,58,.7)}
+.btn:disabled{background:#cfdbd5;color:#fff;box-shadow:none}
+.btn.ghost{background:rgba(255,255,255,.9);color:var(--g-700);
+  border:1.5px solid var(--g-300);box-shadow:0 1px 2px rgba(20,52,42,.05)}
+.btn.ghost:active{background:var(--g-50)}
+.btn.danger{background:var(--white);color:var(--danger);
+  border:1.5px solid #eec5c1;box-shadow:0 1px 2px rgba(20,52,42,.05)}
+.btn.sm{min-height:44px;font-size:15px;border-radius:12px;width:auto;padding:0 16px;display:inline-grid}
+
+/* ---------- notice ---------- */
+.notice{border-radius:var(--r);padding:13px 14px;font-size:14.5px;margin-bottom:14px;
+  border:1.5px solid; line-height:1.45}
+.notice.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn-ink)}
+.notice.info{background:var(--g-50);border-color:var(--g-100);color:var(--g-800)}
+.notice b{font-weight:660}
+.tel{display:block;margin-top:10px;font-size:20px;font-weight:700;color:var(--g-800);
+  text-decoration:none;letter-spacing:.01em}
+
+/* ---------- success ---------- */
+.ok{text-align:center;padding:38px 0 10px}
+.ok .mark{width:84px;height:84px;border-radius:50%;color:#fff;position:relative;
+  background:linear-gradient(150deg,var(--g-500),var(--g-800));
+  display:grid;place-items:center;font-size:38px;margin:0 auto 20px;
+  box-shadow:0 14px 32px -12px rgba(38,101,79,.7);
+  animation:pop .5s var(--ease) both}
+/* two calm rings breathing outward, like water settling */
+.ok .mark::before,.ok .mark::after{content:'';position:absolute;inset:-10px;border-radius:50%;
+  border:1.5px solid rgba(61,155,122,.35);animation:ripple 3.4s var(--ease) infinite}
+.ok .mark::after{animation-delay:1.7s}
+@keyframes pop{from{transform:scale(.72);opacity:0}to{transform:none;opacity:1}}
+@keyframes ripple{
+  0%{transform:scale(.9);opacity:.75}
+  70%{transform:scale(1.4);opacity:0}
+  100%{transform:scale(1.4);opacity:0}}
+.ok h2{font-size:24px;margin:0 0 6px;letter-spacing:-.02em}
+.ok p{color:var(--ink-2);margin:0 0 4px}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;
+  background:var(--g-50);border:1px solid var(--g-100);border-radius:8px;
+  padding:5px 11px;display:inline-block;margin-top:12px;letter-spacing:.06em}
+
+/* ---------- booking list ---------- */
+.bk{border:1.5px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:11px;background:var(--white)}
+.bk.past{opacity:.62}
+.bk .when{font-weight:660;font-size:17px}
+.bk .what{color:var(--ink-2);font-size:14.5px;margin-top:3px}
+.bk .acts{margin-top:12px;display:flex;gap:9px;flex-wrap:wrap}
+
+/* ---------- ADMIN ---------- */
+.adminwrap{display:none}
+.admin-mode .adminwrap{display:block}
+.admin-mode .custwrap{display:none}
+.abar{background:var(--g-900);color:#fff;padding:11px 150px 11px 16px;display:flex;
+  align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:40}
+.abar .brand{font-weight:660;font-size:16px}
+.abar .sp{flex:1}
+.atabs{display:flex;gap:4px;background:rgba(255,255,255,.1);padding:3px;border-radius:11px}
+.atab{padding:8px 14px;border-radius:9px;font-size:14.5px;font-weight:600;color:#cfe4da}
+.atab.on{background:var(--white);color:var(--g-900)}
+.acontent{padding:16px}
+@media(max-width:720px){.acontent{padding:12px}}
+
+.qbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.datenav{display:flex;align-items:center;gap:4px;border:1.5px solid var(--line);
+  border-radius:11px;background:var(--white);padding:3px}
+.datenav button{width:38px;height:38px;border-radius:8px;display:grid;place-items:center;color:var(--g-700);font-size:17px}
+.datenav .cur{padding:0 12px;font-weight:640;font-size:15px}
+
+/* reassign banner */
+.banner{background:var(--warn-bg);border:1.5px solid var(--warn-line);border-radius:var(--r);
+  padding:14px;margin-bottom:16px;display:flex;gap:13px;align-items:flex-start}
+.banner .ic{font-size:22px;line-height:1.1}
+.banner .bt{font-weight:660;color:var(--warn-ink);margin-bottom:2px}
+.banner .bd{font-size:14.5px;color:var(--warn-ink);opacity:.92}
+
+/* timeline */
+.tl{border:1.5px solid var(--line);border-radius:var(--r);background:var(--white);overflow:auto}
+.tlgrid{display:grid;grid-template-columns:58px repeat(var(--cols),minmax(132px,1fr));min-width:max-content}
+.tlhead{position:sticky;top:0;background:var(--g-50);z-index:2;border-bottom:1.5px solid var(--line);
+  padding:11px 8px;font-size:13.5px;font-weight:660;text-align:center}
+.tlhead .off{font-size:11.5px;color:var(--danger);font-weight:600;display:block}
+.tlhour{border-right:1.5px solid var(--line);border-bottom:1px solid var(--line);
+  font-size:12px;color:var(--ink-3);padding:5px 7px;text-align:right;
+  position:sticky;left:0;background:var(--white);z-index:1}
+.tlcell{border-right:1px solid var(--line);border-bottom:1px solid var(--line);
+  position:relative;height:52px}
+.ev{position:absolute;left:3px;right:3px;border-radius:9px;padding:5px 8px;
+  font-size:12.5px;line-height:1.28;overflow:hidden;border-left:3px solid;cursor:pointer}
+/* short services (≤30') only have room for the customer name */
+.ev.short{padding:4px 8px;font-size:12px}
+.ev.short .sv{display:none}
+.ev.booked{background:var(--g-100);border-color:var(--g-600);color:var(--g-900)}
+.ev.serv{background:#dbeafe;border-color:#2563eb;color:#12325e}
+.ev.walk{background:#fef0d6;border-color:#d99b16;color:#6b4708}
+.ev.orphan{background:var(--danger-bg);border-color:var(--danger);color:#7d201a}
+.ev.off{background:repeating-linear-gradient(45deg,#eef1f0,#eef1f0 6px,#e4e9e7 6px,#e4e9e7 12px);
+  border-color:#aab5b1;color:var(--ink-3)}
+.ev .n{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev .buf{position:absolute;left:0;right:0;bottom:0;background:rgba(20,52,42,.09)}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--ink-2)}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{width:13px;height:13px;border-radius:4px;display:inline-block}
+
+/* modal */
+.mask{position:fixed;inset:0;background:rgba(16,38,31,.42);z-index:100;
+  display:none;align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.mask.on{display:flex;animation:fade .26s var(--ease)}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@media(min-width:700px){.mask{align-items:center}}
+.sheet{width:100%;max-width:520px;border-radius:26px 26px 0 0;
+  background:linear-gradient(180deg,#fff,#fcfdfc);
+  max-height:92vh;overflow-y:auto;animation:up .32s var(--ease);
+  box-shadow:0 -12px 44px -14px rgba(20,52,42,.4)}
+@media(min-width:700px){.sheet{border-radius:22px}}
+@keyframes up{from{transform:translateY(30px);opacity:.5}to{transform:none;opacity:1}}
+/* grab handle: reads as a sheet you can pull, familiar from phone apps */
+.sheet .sh::before{content:'';position:absolute;top:8px;left:50%;transform:translateX(-50%);
+  width:38px;height:4px;border-radius:99px;background:#dde7e2}
+@media(min-width:700px){.sheet .sh::before{display:none}}
+.sheet .sh{padding:20px 18px 15px;border-bottom:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center;
+  position:sticky;top:0;z-index:2;background:rgba(255,255,255,.95);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.sheet .sh h3{margin:0;font-size:19px;letter-spacing:-.01em}
+.sheet .sb{padding:18px}
+.sheet .sf{padding:14px 18px calc(16px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line);display:flex;gap:10px;position:sticky;bottom:0;background:var(--white)}
+.sheet .sf .btn{flex:1}
+.x{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;
+  font-size:22px;color:var(--ink-3);margin-right:-8px}
+
+.staffpick{display:flex;gap:10px;align-items:center;padding:12px;border:1.5px solid var(--line);
+  border-radius:12px;margin-bottom:9px;width:100%;text-align:left}
+.staffpick.sel{border-color:var(--g-500);background:var(--g-50)}
+.av{width:44px;height:44px;border-radius:50%;color:var(--g-800);
+  background:linear-gradient(150deg,var(--g-100),#eaf5ef);
+  box-shadow:inset 0 0 0 1px rgba(61,155,122,.16);
+  display:grid;place-items:center;font-weight:660;font-size:15px;flex:0 0 auto}
+.staffpick .nm{font-weight:620}
+.staffpick .mt{font-size:13px;color:var(--ink-3);margin-top:1px}
+
+.qitem{border:1.5px solid #f0d4d1;background:#fdf6f5;border-radius:12px;padding:13px;margin-bottom:10px}
+.qitem .qh{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.qitem .qw{font-weight:640}
+.qitem .qd{font-size:14px;color:var(--ink-2);margin-top:2px}
+.qitem .qa{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
+
+.empty{text-align:center;padding:44px 20px;color:var(--ink-3)}
+.empty .e{font-size:40px;margin-bottom:10px}
+
+.fab{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:50;
+  background:var(--g-700);color:#fff;border-radius:99px;padding:15px 21px;font-weight:660;
+  box-shadow:0 6px 20px rgba(20,52,42,.28);display:flex;gap:8px;align-items:center;font-size:15.5px}
+
+/* prototype-only control; parked top-right so it never covers a real action */
+.modeswitch{position:fixed;right:10px;top:8px;z-index:200;
+  background:rgba(20,52,42,.9);backdrop-filter:blur(6px);color:#fff;border-radius:99px;
+  padding:4px;display:flex;gap:2px;box-shadow:0 4px 14px rgba(0,0,0,.22);font-size:12px}
+.modeswitch button{padding:6px 12px;border-radius:99px;color:#b9d3c8;font-weight:600}
+.modeswitch button.on{background:#fff;color:var(--g-900)}
+.modeswitch::before{content:'DEMO';align-self:center;padding:0 7px 0 5px;
+  color:#7d9c8e;font-size:10px;font-weight:700;letter-spacing:.09em}
+/* narrow screens: park it bottom-left, clear of the primary action button */
+@media(max-width:560px){
+  .modeswitch{top:auto;right:auto;left:8px;
+    bottom:calc(8px + env(safe-area-inset-bottom));transform:scale(.92);transform-origin:left bottom}
+  .bar{padding-right:14px}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ CUSTOMER ============ -->
+<div class="custwrap">
+<div class="phone">
+  <div class="bar">
+    <button class="iconbtn" id="backBtn" onclick="back()" style="display:none">←</button>
+    <div>
+      <h1 id="ttl">Sen Spa</h1>
+      <div class="sub" id="sub">Đặt lịch trong 30 giây</div>
+    </div>
+  </div>
+  <div class="steps" id="steps" style="display:none">
+    <i id="s1"></i><i id="s2"></i><i id="s3"></i><i id="s4"></i>
+  </div>
+  <main id="cmain"></main>
+  <div class="dock" id="cdock" style="display:none"></div>
+</div>
+</div>
+
+<!-- ============ ADMIN ============ -->
+<div class="adminwrap">
+  <div class="abar">
+    <div class="brand">Sen Spa · Quản lý</div>
+    <div class="atabs">
+      <button class="atab on" onclick="atab('day')" id="tab-day">Lịch ngày</button>
+      <button class="atab" onclick="atab('queue')" id="tab-queue">Cần xếp lại <span id="qbadge"></span></button>
+      <button class="atab" onclick="atab('setup')" id="tab-setup">Thiết lập</button>
+    </div>
+    <div class="sp"></div>
+  </div>
+  <div class="acontent" id="amain"></div>
+  <button class="fab" onclick="openWalkIn()">＋ Khách vãng lai</button>
+</div>
+
+<div class="mask" id="mask" onclick="if(event.target===this)closeSheet()">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<div class="modeswitch">
+  <button id="mc" class="on" onclick="setMode('cust')">Khách</button>
+  <button id="ma" onclick="setMode('admin')">Lễ tân</button>
+</div>
+
+<script>
+/* ============ DATA ============ */
+const SKILLS={mas:'Massage',hair:'Tóc',nail:'Móng',face:'Da mặt'};
+const STAFF=[
+  {id:1,name:'Chị Lan',skills:['mas','face'],off:false},
+  {id:2,name:'Chị Hoa',skills:['mas'],off:false},
+  {id:3,name:'Bạn Mai',skills:['nail','hair'],off:false},
+  {id:4,name:'Chị Thu',skills:['face','nail'],off:true},
+  {id:5,name:'Bạn Linh',skills:['hair'],off:false},
+];
+const SERVICES=[
+  {id:'mas',name:'Massage thư giãn',skill:'mas',zone:'body',desc:'Toàn thân, tinh dầu thảo mộc',
+   variants:[{id:'m45',name:'45 phút',dur:45,buf:10,price:250000},
+             {id:'m90',name:'90 phút',dur:90,buf:15,price:420000}]},
+  {id:'face',name:'Chăm sóc da mặt',skill:'face',zone:'face',desc:'Làm sạch sâu, dưỡng ẩm',
+   variants:[{id:'f60',name:'60 phút',dur:60,buf:10,price:320000},
+             {id:'f90',name:'90 phút · chuyên sâu',dur:90,buf:15,price:520000}]},
+  {id:'nail',name:'Làm móng',skill:'nail',zone:'hands',desc:'Cắt, sơn gel, vẽ hoạ tiết',
+   variants:[{id:'n45',name:'Cơ bản · 45 phút',dur:45,buf:5,price:180000},
+             {id:'n75',name:'Gel + vẽ · 75 phút',dur:75,buf:5,price:300000}]},
+  {id:'hair',name:'Gội đầu dưỡng sinh',skill:'hair',zone:'hair',desc:'Gội, massage cổ vai gáy',
+   variants:[{id:'h30',name:'30 phút',dur:30,buf:5,price:120000},
+             {id:'h60',name:'60 phút',dur:60,buf:10,price:220000}]},
+];
+const vnd=n=>n.toLocaleString('vi-VN')+'₫';
+const pad=n=>String(n).padStart(2,'0');
+const hm=m=>pad(Math.floor(m/60))+':'+pad(m%60);
+const DW=['CN','T2','T3','T4','T5','T6','T7'];
+
+/* today's appointments (minutes from midnight) */
+let APPTS=[
+  {id:101,staff:1,cust:'Nguyễn Thu Hà',sv:'Massage 90′',start:9*60,dur:90,buf:15,st:'done'},
+  {id:102,staff:1,cust:'Trần Mỹ Linh',sv:'Da mặt 60′',start:13*60,dur:60,buf:10,st:'booked'},
+  {id:103,staff:2,cust:'Lê Thanh Tú',sv:'Massage 45′',start:10*60+30,dur:45,buf:10,st:'serv'},
+  {id:104,staff:2,cust:'Phạm Bích Ngọc',sv:'Massage 90′',start:14*60,dur:90,buf:15,st:'booked'},
+  {id:105,staff:3,cust:'Khách lẻ',sv:'Móng cơ bản 45′',start:11*60+10,dur:45,buf:5,st:'walk'},
+  {id:106,staff:3,cust:'Vũ Kim Anh',sv:'Gel + vẽ 75′',start:15*60,dur:75,buf:5,st:'booked'},
+  {id:107,staff:5,cust:'Đỗ Hồng Nhung',sv:'Gội 60′',start:9*60+30,dur:60,buf:10,st:'done'},
+  {id:108,staff:5,cust:'Bùi Thuỳ Dương',sv:'Gội 30′',start:16*60,dur:30,buf:5,st:'booked'},
+  /* orphaned by Chị Thu's sudden absence */
+  {id:109,staff:4,cust:'Hoàng Yến Nhi',sv:'Da mặt 60′',start:14*60+30,dur:60,buf:10,st:'orphan',phone:'0903 121 456'},
+  {id:110,staff:4,cust:'Ngô Phương Thảo',sv:'Móng gel 75′',start:16*60,dur:75,buf:5,st:'orphan',phone:'0912 887 330'},
+];
+const OPEN=9*60, CLOSE=19*60;
+
+/* customer's own bookings (for lookup flow) */
+const MYPHONE='0901 234 567';
+let MYBOOKINGS=[
+  {id:201,when:'Thứ Năm, 24/07 · 14:00',sv:'Massage thư giãn · 90 phút',staff:'Chị Lan',
+   price:420000,hoursAway:52,st:'booked'},
+  {id:202,when:'Hôm nay · 17:30',sv:'Gội đầu dưỡng sinh · 30 phút',staff:'Bạn Linh',
+   price:120000,hoursAway:1.5,st:'booked'},
+  {id:203,when:'Thứ Hai, 14/07 · 10:00',sv:'Làm móng · Gel + vẽ',staff:'Bạn Mai',
+   price:300000,hoursAway:-168,st:'done'},
+];
+
+/* ============ STATE ============ */
+let mode='cust';
+let S={screen:'home',svc:null,vr:null,date:0,time:null,staff:null,name:'',phone:''};
+let adminTab='day';
+
+function setMode(m){
+  mode=m;
+  document.body.classList.toggle('admin-mode',m==='admin');
+  document.getElementById('mc').classList.toggle('on',m==='cust');
+  document.getElementById('ma').classList.toggle('on',m==='admin');
+  m==='admin'?renderAdmin():render();
+}
+
+/* ============ CUSTOMER FLOW ============ */
+const FLOW=['home','variant','time','confirm'];
+function go(s){S.screen=s;window.scrollTo(0,0);render()}
+function back(){
+  const order=['home','variant','time','confirm'];
+  if(S.screen==='lookup'||S.screen==='mybookings'){return go('home')}
+  const i=order.indexOf(S.screen);
+  if(i>0)go(order[i-1]); else go('home');
+}
+
+function nextDays(n){
+  const out=[],t=new Date();
+  for(let i=0;i<n;i++){const d=new Date(t);d.setDate(t.getDate()+i);out.push(d)}
+  return out;
+}
+const DAYS=nextDays(14);
+
+/* fake availability: deterministic per staff/day so it feels real */
+function slotsFor(varObj,dateIdx){
+  const block=varObj.dur+varObj.buf;
+  const cand=STAFF.filter(s=>!s.off&&s.skills.includes(S.svc.skill));
+  const out=[];
+  for(let t=OPEN;t+block<=CLOSE;t+=15){
+    const free=cand.filter(s=>{
+      const seed=(s.id*37+dateIdx*11+t/15)%7;
+      if(dateIdx===0&&t<14*60)return false;      // today: only later slots
+      return seed>1;
+    });
+    if(free.length)out.push({t,staff:free});
+  }
+  return out;
+}
+
+function render(){
+  const m=document.getElementById('cmain'),d=document.getElementById('cdock'),
+        st=document.getElementById('steps'),bb=document.getElementById('backBtn');
+  const idx=FLOW.indexOf(S.screen);
+  st.style.display=idx>0?'flex':'none';
+  [1,2,3,4].forEach(i=>document.getElementById('s'+i).classList.toggle('on',i<=idx+1));
+  bb.style.display=(S.screen==='home')?'none':'grid';
+  d.style.display='block';
+  const R=SCREENS[S.screen]();
+  document.getElementById('ttl').textContent=R.title;
+  document.getElementById('sub').textContent=R.sub||'';
+  m.innerHTML=R.body;
+  if(R.dock){d.innerHTML=R.dock}else{d.style.display='none'}
+}
+
+const SCREENS={
+home(){return{
+  title:'Sen Spa', sub:'Đặt lịch trong 30 giây',
+  body:`
+    <div class="h2">Bạn muốn làm gì hôm nay?</div>
+    <p class="lede">Chọn dịch vụ, chúng tôi sắp kỹ thuật viên phù hợp.</p>
+    ${SERVICES.map(s=>`
+      <button class="card" onclick="pickSvc('${s.id}')">
+        <div class="row">
+          <div>
+            <div class="t">${s.name}</div>
+            <div class="d">${s.desc}</div>
+            <div style="margin-top:8px"><span class="pill">từ ${vnd(Math.min(...s.variants.map(v=>v.price)))}</span></div>
+          </div>
+          <div class="chev">›</div>
+        </div>
+      </button>`).join('')}
+    <div class="label">Đã đặt lịch rồi?</div>
+    <button class="card" onclick="go('lookup')">
+      <div class="row"><div><div class="t">Xem lịch hẹn của tôi</div>
+      <div class="d">Tra cứu bằng số điện thoại</div></div><div class="chev">›</div></div>
+    </button>`,
+  dock:null
+}},
+
+variant(){const s=S.svc;return{
+  title:s.name, sub:'Chọn gói phù hợp',
+  body:`
+    <div class="h2">${s.name}</div>
+    <p class="lede">${s.desc}</p>
+    <div class="label">Chọn thời lượng</div>
+    ${s.variants.map(v=>`
+      <button class="card ${S.vr&&S.vr.id===v.id?'sel':''}" onclick="pickVar('${v.id}')">
+        <div class="row">
+          <div><div class="t">${v.name}</div>
+          <div class="d">Nghỉ ${v.buf} phút dọn dẹp sau đó</div></div>
+          <div class="price">${vnd(v.price)}</div>
+        </div>
+      </button>`).join('')}`,
+  dock:`<button class="btn" ${S.vr?'':'disabled'} onclick="go('time')">Tiếp tục</button>`
+}},
+
+time(){
+  const sl=slotsFor(S.vr,S.date);
+  const groups={'Buổi sáng':[],'Buổi chiều':[],'Buổi tối':[]};
+  sl.forEach(x=>{const g=x.t<12*60?'Buổi sáng':x.t<17*60?'Buổi chiều':'Buổi tối';groups[g].push(x)});
+  const body=Object.entries(groups).filter(([,v])=>v.length).map(([k,v])=>`
+    <div class="daypart">${k}</div>
+    <div class="slots">${v.map(x=>`
+      <button class="slot ${S.time===x.t?'sel':''}" onclick="pickTime(${x.t})">${hm(x.t)}</button>`).join('')}</div>`).join('');
+  const chosen=S.time!==null?sl.find(x=>x.t===S.time):null;
+  return{
+  title:'Chọn ngày & giờ', sub:S.svc.name+' · '+S.vr.name,
+  body:`
+    <div class="dates">
+      ${DAYS.map((d,i)=>`
+        <button class="date ${S.date===i?'sel':''}" onclick="pickDate(${i})">
+          <div class="dw">${i===0?'Hôm nay':DW[d.getDay()]}</div>
+          <div class="dd">${d.getDate()}</div>
+        </button>`).join('')}
+    </div>
+    ${sl.length?body:`<div class="empty"><div class="e">🗓️</div>
+      <div>Ngày này đã kín lịch.<br>Bạn chọn ngày khác nhé.</div></div>`}
+    ${chosen?`
+      <div class="label">Kỹ thuật viên</div>
+      <button class="card ${S.staff===null?'sel':''}" onclick="pickStaff(null)">
+        <div class="row"><div><div class="t">Để spa sắp xếp</div>
+        <div class="d">Chọn bạn đang rảnh và phù hợp nhất</div></div>
+        <span class="pill">Gợi ý</span></div>
+      </button>
+      ${chosen.staff.map(s=>`
+        <button class="card ${S.staff===s.id?'sel':''}" onclick="pickStaff(${s.id})">
+          <div class="row" style="justify-content:flex-start">
+            <div class="av">${s.name.split(' ').pop()[0]}</div>
+            <div><div class="t">${s.name}</div>
+            <div class="d">${s.skills.map(k=>SKILLS[k]).join(' · ')}</div></div>
+          </div>
+        </button>`).join('')}`:''}`,
+  dock:`<button class="btn" ${S.time!==null?'':'disabled'} onclick="go('confirm')">
+    ${S.time!==null?'Tiếp tục · '+hm(S.time):'Chọn giờ để tiếp tục'}</button>`
+}},
+
+confirm(){
+  const d=DAYS[S.date], staffName=S.staff?STAFF.find(s=>s.id===S.staff).name:'Spa sắp xếp';
+  return{
+  title:'Xác nhận', sub:'Kiểm tra lại thông tin',
+  body:`
+    <div class="h2">Gần xong rồi</div>
+    <p class="lede">Kiểm tra lại và cho chúng tôi biết tên bạn.</p>
+    <div class="summary">
+      <div class="sline"><span class="k">Dịch vụ</span><span class="v">${S.svc.name}</span></div>
+      <div class="sline"><span class="k">Gói</span><span class="v">${S.vr.name}</span></div>
+      <div class="sline"><span class="k">Thời gian</span><span class="v">${S.date===0?'Hôm nay':DW[d.getDay()]+', '+pad(d.getDate())+'/'+pad(d.getMonth()+1)}<br>${hm(S.time)} – ${hm(S.time+S.vr.dur)}</span></div>
+      <div class="sline"><span class="k">Kỹ thuật viên</span><span class="v">${staffName}</span></div>
+      <div class="sline total"><span class="k">Tổng cộng</span><span class="v">${vnd(S.vr.price)}</span></div>
+    </div>
+    <div class="field">
+      <label>Tên của bạn</label>
+      <input id="fn" placeholder="Ví dụ: Nguyễn Thu Hà" value="${S.name}" oninput="S.name=this.value;chk()">
+    </div>
+    <div class="field">
+      <label>Số điện thoại</label>
+      <input id="fp" type="tel" inputmode="numeric" placeholder="0901 234 567" value="${S.phone}" oninput="S.phone=this.value;chk()">
+      <div class="hint">Dùng để tra cứu và đổi lịch. Không cần tạo tài khoản.</div>
+    </div>
+    <div class="notice info">
+      <b>Thanh toán tại spa.</b> Bạn có thể huỷ miễn phí đến trước giờ hẹn 2 tiếng.
+    </div>`,
+  dock:`<button class="btn" id="cf" disabled onclick="submitBooking()">Xác nhận đặt lịch</button>`
+}},
+
+done(){const d=DAYS[S.date];return{
+  title:'Đã đặt lịch', sub:'',
+  body:`
+    <div class="ok">
+      <div class="mark">✓</div>
+      <h2>Đặt lịch thành công</h2>
+      <p>Hẹn gặp bạn ${S.date===0?'hôm nay':'ngày '+pad(d.getDate())+'/'+pad(d.getMonth()+1)} lúc <b>${hm(S.time)}</b></p>
+      <div class="code">MÃ ĐẶT LỊCH · SEN-4821</div>
+    </div>
+    <div class="summary" style="margin-top:24px">
+      <div class="sline"><span class="k">Dịch vụ</span><span class="v">${S.svc.name} · ${S.vr.name}</span></div>
+      <div class="sline"><span class="k">Kỹ thuật viên</span><span class="v">${S.staff?STAFF.find(s=>s.id===S.staff).name:'Chị Hoa'}</span></div>
+      <div class="sline"><span class="k">Địa chỉ</span><span class="v">128 Nguyễn Huệ, Q.1</span></div>
+      <div class="sline total"><span class="k">Thanh toán tại spa</span><span class="v">${vnd(S.vr.price)}</span></div>
+    </div>
+    <div class="notice info" style="margin-top:16px">
+      Vui lòng đến sớm 5 phút. Cần đổi lịch, gọi <b>028 3822 1179</b>.
+    </div>`,
+  dock:`<button class="btn ghost" onclick="reset()">Về trang chủ</button>`
+}},
+
+lookup(){return{
+  title:'Lịch hẹn của tôi', sub:'Tra cứu bằng số điện thoại',
+  body:`
+    <div class="h2">Nhập số điện thoại</div>
+    <p class="lede">Số bạn đã dùng khi đặt lịch.</p>
+    <div class="field">
+      <label>Số điện thoại</label>
+      <input id="lp" type="tel" inputmode="numeric" placeholder="0901 234 567" value="${MYPHONE}">
+    </div>
+    <div class="notice info">Không cần mật khẩu. Chúng tôi chỉ hiện lịch gắn với số này.</div>`,
+  dock:`<button class="btn" onclick="go('mybookings')">Xem lịch hẹn</button>`
+}},
+
+mybookings(){return{
+  title:'Lịch hẹn của tôi', sub:MYPHONE,
+  body:`
+    ${MYBOOKINGS.filter(b=>b.st!=='done').length===0?
+      `<div class="empty"><div class="e">🌿</div><div>Bạn chưa có lịch hẹn sắp tới.</div></div>`:''}
+    <div class="label">Sắp tới</div>
+    ${MYBOOKINGS.filter(b=>b.st==='booked').map(b=>`
+      <div class="bk">
+        <div class="row">
+          <div class="when">${b.when}</div>
+          ${b.hoursAway<2?`<span class="pill warn">Sắp bắt đầu</span>`:`<span class="pill">Đã xác nhận</span>`}
+        </div>
+        <div class="what">${b.sv}<br>Kỹ thuật viên: ${b.staff} · ${vnd(b.price)}</div>
+        ${b.hoursAway<2?`
+          <div class="notice warn" style="margin:12px 0 0">
+            Còn dưới 2 tiếng nên không huỷ trực tuyến được.
+            Bạn gọi giúp spa để đổi giờ nhé — thường vẫn xếp được.
+            <a class="tel" href="tel:02838221179">📞 028 3822 1179</a>
+          </div>`:`
+          <div class="acts">
+            <button class="btn sm ghost" onclick="alert('Prototype: mở lại luồng chọn giờ')">Đổi giờ</button>
+            <button class="btn sm danger" onclick="cancelBk(${b.id})">Huỷ lịch</button>
+          </div>`}
+      </div>`).join('')}
+    ${MYBOOKINGS.filter(b=>b.st==='cancelled').length?`<div class="label">Đã huỷ</div>`:''}
+    ${MYBOOKINGS.filter(b=>b.st==='cancelled').map(b=>`
+      <div class="bk past"><div class="row"><div class="when">${b.when}</div>
+      <span class="pill gray">Đã huỷ</span></div>
+      <div class="what">${b.sv}</div></div>`).join('')}
+    <div class="label">Đã hoàn thành</div>
+    ${MYBOOKINGS.filter(b=>b.st==='done').map(b=>`
+      <div class="bk past"><div class="row"><div class="when">${b.when}</div>
+      <span class="pill gray">Xong</span></div>
+      <div class="what">${b.sv} · ${b.staff}</div>
+      <div class="acts"><button class="btn sm ghost" onclick="reset()">Đặt lại dịch vụ này</button></div>
+      </div>`).join('')}`,
+  dock:`<button class="btn" onclick="reset()">Đặt lịch mới</button>`
+}}
+};
+
+function pickSvc(id){S.svc=SERVICES.find(s=>s.id===id);S.vr=null;S.time=null;S.staff=null;go('variant')}
+function pickVar(id){S.vr=S.svc.variants.find(v=>v.id===id);S.time=null;render()}
+function pickDate(i){S.date=i;S.time=null;S.staff=null;render()}
+function pickTime(t){S.time=t;S.staff=null;render()}
+function pickStaff(id){S.staff=id;render()}
+function chk(){const b=document.getElementById('cf');
+  b.disabled=!(S.name.trim().length>1&&S.phone.replace(/\D/g,'').length>=9)}
+function submitBooking(){go('done')}
+function reset(){S={screen:'home',svc:null,vr:null,date:0,time:null,staff:null,name:'',phone:''};render()}
+function cancelBk(id){
+  const b=MYBOOKINGS.find(x=>x.id===id);
+  if(confirm('Huỷ lịch '+b.when+'?\n\nSlot sẽ được mở lại cho khách khác.')){
+    b.st='cancelled';render();
+  }
+}
+
+/* ============ ADMIN ============ */
+function atab(t){adminTab=t;
+  ['day','queue','setup'].forEach(x=>document.getElementById('tab-'+x).classList.toggle('on',x===t));
+  renderAdmin()}
+
+function orphans(){return APPTS.filter(a=>a.st==='orphan')}
+
+function renderAdmin(){
+  const el=document.getElementById('amain');
+  const nq=orphans().length;
+  document.getElementById('qbadge').innerHTML=nq?`<span class="pill red" style="margin-left:4px">${nq}</span>`:'';
+  if(adminTab==='day')el.innerHTML=dayView();
+  else if(adminTab==='queue')el.innerHTML=queueView();
+  else el.innerHTML=setupView();
+}
+
+function dayView(){
+  const staff=STAFF;
+  /* one extra hour so a booking starting at 18:xx is not clipped */
+  const hours=[];for(let h=9;h<=19;h++)hours.push(h);
+  const nq=orphans().length;
+  let html=`
+    ${nq?`<div class="banner">
+      <div class="ic">⚠️</div>
+      <div style="flex:1">
+        <div class="bt">${nq} lịch hẹn cần xếp lại kỹ thuật viên</div>
+        <div class="bd">Chị Thu nghỉ đột xuất từ 14:00. Khách vẫn đang chờ — cần gọi báo và chuyển sang bạn khác.</div>
+      </div>
+      <button class="btn sm" onclick="atab('queue')">Xử lý ngay</button>
+    </div>`:''}
+    <div class="qbar">
+      <div class="datenav">
+        <button onclick="void 0">‹</button>
+        <span class="cur">Hôm nay · T2, 21/07</span>
+        <button onclick="void 0">›</button>
+      </div>
+      <button class="btn sm ghost" onclick="openTimeOff()">Báo nghỉ đột xuất</button>
+    </div>
+    <div class="tl"><div class="tlgrid" style="--cols:${staff.length}">
+      <div class="tlhead" style="position:sticky;left:0;z-index:3"></div>
+      ${staff.map(s=>`<div class="tlhead">${s.name}
+        ${s.off?'<span class="off">Nghỉ từ 14:00</span>':''}</div>`).join('')}`;
+  hours.forEach(h=>{
+    html+=`<div class="tlhour">${pad(h)}:00</div>`;
+    staff.forEach(s=>{
+      html+=`<div class="tlcell">`;
+      /* time-off drawn once, as one continuous block, BEHIND the bookings */
+      if(s.off&&h===14){
+        const hgt=((CLOSE-14*60)/60)*52;
+        html+=`<div class="ev off" style="top:0;height:${hgt-2}px;z-index:0">
+          <div class="n">Nghỉ đột xuất</div><div>từ 14:00</div></div>`;
+      }
+      APPTS.filter(a=>a.staff===s.id&&a.start>=h*60&&a.start<(h+1)*60).forEach(a=>{
+        const top=((a.start-h*60)/60)*52, hgt=((a.dur+a.buf)/60)*52, bufh=(a.buf/60)*52;
+        const cls=a.st==='orphan'?'orphan':a.st==='walk'?'walk':a.st==='serv'?'serv':'booked';
+        const short=hgt<44?' short':'';
+        html+=`<div class="ev ${cls}${short}" style="top:${top}px;height:${hgt-2}px;z-index:${a.st==='orphan'?3:2}" onclick="openAppt(${a.id})">
+          <div class="n">${a.cust}</div><div class="sv">${a.sv}</div>
+          <div class="buf" style="height:${bufh}px"></div></div>`;
+      });
+      html+=`</div>`;
+    });
+  });
+  html+=`</div></div>
+    <div class="legend">
+      <span><i style="background:var(--g-100);border-left:3px solid var(--g-600)"></i>Đã đặt</span>
+      <span><i style="background:#dbeafe;border-left:3px solid #2563eb"></i>Đang làm</span>
+      <span><i style="background:#fef0d6;border-left:3px solid #d99b16"></i>Khách vãng lai</span>
+      <span><i style="background:var(--danger-bg);border-left:3px solid var(--danger)"></i>Cần xếp lại</span>
+      <span><i style="background:rgba(20,52,42,.12)"></i>Thời gian dọn dẹp</span>
+    </div>`;
+  return html;
+}
+
+function queueView(){
+  const q=orphans();
+  if(!q.length)return `<div class="empty"><div class="e">✓</div>
+    <div><b>Không còn lịch nào cần xếp lại.</b><br>Mọi khách đều đã có kỹ thuật viên.</div></div>`;
+  return `
+    <div class="banner" style="margin-bottom:18px">
+      <div class="ic">⚠️</div><div>
+        <div class="bt">Chị Thu nghỉ từ 14:00 hôm nay</div>
+        <div class="bd">${q.length} khách đã đặt trước đang không có người phục vụ.
+        Gọi báo từng khách rồi chuyển sang bạn khác, hoặc huỷ nếu khách không đổi được.</div>
+      </div>
+    </div>
+    ${q.map(a=>`
+      <div class="qitem">
+        <div class="qh">
+          <div>
+            <div class="qw">${hm(a.start)} · ${a.cust}</div>
+            <div class="qd">${a.sv} · ${a.phone}</div>
+          </div>
+          <span class="pill red">Chưa xử lý</span>
+        </div>
+        <div class="qa">
+          <a class="btn sm ghost" href="tel:${a.phone.replace(/\s/g,'')}" style="text-decoration:none">📞 Gọi khách</a>
+          <button class="btn sm" onclick="openReassign(${a.id})">Chuyển kỹ thuật viên</button>
+          <button class="btn sm danger" onclick="dropAppt(${a.id})">Huỷ lịch</button>
+        </div>
+      </div>`).join('')}`;
+}
+
+function setupView(){
+  return `
+    <div style="max-width:760px">
+      <div class="label" style="margin-top:0">Dịch vụ & gói</div>
+      ${SERVICES.map(s=>`
+        <div class="card" style="cursor:default">
+          <div class="row"><div>
+            <div class="t">${s.name}</div>
+            <div class="d">Kỹ năng cần: ${SKILLS[s.skill]} · Vùng: ${s.zone}</div>
+          </div><button class="btn sm ghost">Sửa</button></div>
+          <div style="margin-top:11px;display:flex;gap:8px;flex-wrap:wrap">
+            ${s.variants.map(v=>`<span class="pill">${v.name} · ${vnd(v.price)} · nghỉ ${v.buf}′</span>`).join('')}
+          </div>
+        </div>`).join('')}
+      <div class="label">Kỹ thuật viên</div>
+      ${STAFF.map(s=>`
+        <div class="card" style="cursor:default">
+          <div class="row" style="justify-content:flex-start;gap:12px">
+            <div class="av">${s.name.split(' ').pop()[0]}</div>
+            <div style="flex:1">
+              <div class="t">${s.name} ${s.off?'<span class="pill red">Đang nghỉ</span>':''}</div>
+              <div class="d">${s.skills.map(k=>SKILLS[k]).join(' · ')} · Ca 09:00–19:00</div>
+            </div>
+            <button class="btn sm ghost">Sửa</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+}
+
+/* ---------- sheets ---------- */
+function sheet(h){document.getElementById('sheet').innerHTML=h;document.getElementById('mask').classList.add('on')}
+function closeSheet(){document.getElementById('mask').classList.remove('on')}
+
+let WI={svc:null,vr:null,staff:null};
+function openWalkIn(){
+  WI={svc:null,vr:null,staff:null};
+  drawWalkIn();
+}
+function drawWalkIn(){
+  const now=new Date(),nowM=now.getHours()*60+now.getMinutes();
+  const block=WI.vr?WI.vr.dur+WI.vr.buf:0;
+  const cand=WI.vr
+    ?STAFF.filter(s=>!s.off&&s.skills.includes(WI.svc.skill)&&isFree(s.id,nowM,block))
+    :[];
+  sheet(`
+    <div class="sh"><h3>Khách vãng lai</h3><button class="x" onclick="closeSheet()">×</button></div>
+    <div class="sb">
+      <div class="notice info">Bắt đầu ngay bây giờ — <b>${pad(now.getHours())}:${pad(now.getMinutes())}</b>.
+      Giờ bắt đầu không cần tròn 15 phút.</div>
+      <div class="label" style="margin-top:6px">Dịch vụ</div>
+      <div class="field"><select onchange="wiSvc(this.value)">
+        <option value="">— Chọn dịch vụ —</option>
+        ${SERVICES.map(s=>`<option value="${s.id}" ${WI.svc&&WI.svc.id===s.id?'selected':''}>${s.name}</option>`).join('')}
+      </select></div>
+      ${WI.svc?`
+        <div class="label">Gói</div>
+        <div class="field"><select onchange="wiVar(this.value)">
+          <option value="">— Chọn gói —</option>
+          ${WI.svc.variants.map(v=>`<option value="${v.id}" ${WI.vr&&WI.vr.id===v.id?'selected':''}>${v.name} · ${vnd(v.price)}</option>`).join('')}
+        </select></div>`:''}
+      ${WI.vr?`
+        <div class="label">Kỹ thuật viên đang rảnh</div>
+        ${cand.map((s,i)=>`
+          <button class="staffpick ${WI.staff===s.id?'sel':''}" onclick="wiStaff(${s.id})">
+            <div class="av">${s.name.split(' ').pop()[0]}</div>
+            <div style="flex:1"><div class="nm">${s.name}</div>
+            <div class="mt">${i===0?'Rảnh ngay · ít việc nhất hôm nay':'Rảnh ngay'}</div></div>
+            ${i===0?'<span class="pill">Gợi ý</span>':''}
+          </button>`).join('')||'<div class="notice warn">Không có ai rảnh cho dịch vụ này lúc này.</div>'}
+        <div class="label">Khách hàng</div>
+        <div class="field"><label>Tên</label><input placeholder="Để trống nếu khách không muốn cho tên"></div>
+        <div class="field"><label>Số điện thoại <span style="color:var(--ink-3);font-weight:400">(không bắt buộc)</span></label>
+          <input type="tel" inputmode="numeric" placeholder="0901 234 567">
+          <div class="hint">Bỏ trống sẽ lưu là “Khách lẻ”.</div></div>`:''}
+    </div>
+    <div class="sf">
+      <button class="btn ghost" onclick="closeSheet()">Đóng</button>
+      <button class="btn" ${WI.staff?'':'disabled'} onclick="wiSave()">Bắt đầu phục vụ</button>
+    </div>`);
+}
+function wiSvc(id){WI.svc=SERVICES.find(s=>s.id===id)||null;WI.vr=null;WI.staff=null;drawWalkIn()}
+function wiVar(id){WI.vr=WI.svc.variants.find(v=>v.id===id)||null;WI.staff=null;drawWalkIn()}
+function wiStaff(id){WI.staff=id;drawWalkIn()}
+function wiSave(){
+  const now=new Date(),nowM=now.getHours()*60+now.getMinutes();
+  APPTS.push({id:Date.now(),staff:WI.staff,cust:'Khách lẻ',
+    sv:WI.svc.name.split(' ')[0]+' '+WI.vr.name,start:nowM,dur:WI.vr.dur,buf:WI.vr.buf,st:'serv'});
+  closeSheet();adminTab='day';atab('day');
+}
+
+function openTimeOff(){
+  sheet(`
+    <div class="sh"><h3>Báo nghỉ đột xuất</h3><button class="x" onclick="closeSheet()">×</button></div>
+    <div class="sb">
+      <div class="field"><label>Kỹ thuật viên</label>
+        <select><option>Chị Thu</option>${STAFF.filter(s=>!s.off).map(s=>`<option>${s.name}</option>`).join('')}</select></div>
+      <div class="field"><label>Từ</label><input value="14:00"></div>
+      <div class="field"><label>Đến</label><input value="19:00 (hết ngày)"></div>
+      <div class="field"><label>Lý do</label><input placeholder="Ví dụ: ốm đột xuất"></div>
+      <div class="notice warn">
+        <b>2 lịch hẹn sẽ bị ảnh hưởng.</b><br>
+        14:30 · Hoàng Yến Nhi — Da mặt 60′<br>
+        16:00 · Ngô Phương Thảo — Móng gel 75′<br><br>
+        Các lịch này sẽ chuyển vào mục <b>Cần xếp lại</b>. Khách vẫn giữ chỗ cho tới khi bạn gọi báo.
+      </div>
+    </div>
+    <div class="sf">
+      <button class="btn ghost" onclick="closeSheet()">Huỷ</button>
+      <button class="btn" onclick="closeSheet();atab('queue')">Xác nhận nghỉ</button>
+    </div>`);
+}
+
+/* which skill does an appointment need? derived from its service label */
+function skillOf(a){
+  const t=a.sv.toLowerCase();
+  if(t.includes('massage'))return 'mas';
+  if(t.includes('da mặt'))return 'face';
+  if(t.includes('móng'))return 'nail';
+  return 'hair';
+}
+/* real overlap check against that staff's other live bookings */
+function isFree(staffId,start,block,ignoreId){
+  return !APPTS.some(x=>x.staff===staffId&&x.id!==ignoreId
+    &&['booked','serv','walk'].includes(x.st)
+    &&start<x.start+x.dur+x.buf&&x.start<start+block);
+}
+
+function openReassign(id){
+  const a=APPTS.find(x=>x.id===id);
+  const need=skillOf(a), block=a.dur+a.buf;
+  const cand=STAFF.filter(s=>!s.off);
+  sheet(`
+    <div class="sh"><h3>Chuyển kỹ thuật viên</h3><button class="x" onclick="closeSheet()">×</button></div>
+    <div class="sb">
+      <div class="summary" style="margin-bottom:18px">
+        <div class="sline"><span class="k">Khách</span><span class="v">${a.cust}</span></div>
+        <div class="sline"><span class="k">Dịch vụ</span><span class="v">${a.sv}</span></div>
+        <div class="sline"><span class="k">Giờ</span><span class="v">${hm(a.start)} – ${hm(a.start+a.dur)}</span></div>
+      </div>
+      ${cand.filter(s=>s.skills.includes(need)&&isFree(s.id,a.start,block,id)).length===0?`
+        <div class="notice warn">
+          <b>Không có ai nhận được khung giờ này.</b><br>
+          Gọi khách để đổi sang giờ khác, hoặc huỷ và xin lỗi khách.
+          <a class="tel" href="tel:${(a.phone||'').replace(/\\s/g,'')}">📞 ${a.phone||''}</a>
+        </div>`:''}
+      <div class="label" style="margin-top:0">Ai có thể nhận?</div>
+      ${cand.map(s=>{
+        const hasSkill=s.skills.includes(need);
+        const free=isFree(s.id,a.start,block,id);
+        const ok=hasSkill&&free;
+        const why=!hasSkill?'Không có kỹ năng '+SKILLS[need]:!free?'Bận khung giờ này':'Đủ kỹ năng · đang rảnh';
+        return `<button class="staffpick" ${ok?`onclick="doReassign(${id},${s.id})"`:'disabled style="opacity:.45"'}>
+          <div class="av">${s.name.split(' ').pop()[0]}</div>
+          <div style="flex:1"><div class="nm">${s.name}</div>
+          <div class="mt">${why}</div></div>
+          ${ok?'<span class="chev">›</span>':''}
+        </button>`}).join('')}
+      <div class="notice info">Chỉ những người <b>đủ kỹ năng ${SKILLS[need]} và đang rảnh</b>
+      mới bấm được, nên không thể xếp trùng giờ.</div>
+    </div>
+    <div class="sf"><button class="btn ghost" onclick="closeSheet()">Đóng</button></div>`);
+}
+function doReassign(aid,sid){
+  const a=APPTS.find(x=>x.id===aid);a.staff=sid;a.st='booked';
+  closeSheet();renderAdmin();
+}
+function dropAppt(id){
+  const a=APPTS.find(x=>x.id===id);
+  if(confirm('Huỷ lịch của '+a.cust+'?\n\nNhớ gọi báo khách trước.')){
+    APPTS=APPTS.filter(x=>x.id!==id);renderAdmin();
+  }
+}
+function openAppt(id){
+  const a=APPTS.find(x=>x.id===id);
+  const stName={booked:'Đã đặt',serv:'Đang làm',done:'Xong',walk:'Khách vãng lai',orphan:'Cần xếp lại'}[a.st];
+  sheet(`
+    <div class="sh"><h3>${a.cust}</h3><button class="x" onclick="closeSheet()">×</button></div>
+    <div class="sb">
+      <div class="summary">
+        <div class="sline"><span class="k">Dịch vụ</span><span class="v">${a.sv}</span></div>
+        <div class="sline"><span class="k">Giờ</span><span class="v">${hm(a.start)} – ${hm(a.start+a.dur)}</span></div>
+        <div class="sline"><span class="k">Dọn dẹp sau</span><span class="v">${a.buf} phút</span></div>
+        <div class="sline"><span class="k">Kỹ thuật viên</span><span class="v">${STAFF.find(s=>s.id===a.staff).name}</span></div>
+        <div class="sline"><span class="k">Trạng thái</span><span class="v">${stName}</span></div>
+      </div>
+      <div class="label">Cập nhật trạng thái</div>
+      <div style="display:flex;gap:9px;flex-wrap:wrap">
+        <button class="btn sm ghost" onclick="setSt(${id},'serv')">Bắt đầu làm</button>
+        <button class="btn sm ghost" onclick="setSt(${id},'done')">Hoàn thành</button>
+        <button class="btn sm danger" onclick="setSt(${id},'noshow')">Khách không đến</button>
+      </div>
+      <div class="notice info" style="margin-top:16px">
+        “Khách không đến” dùng để ghi nhận lịch sử của số điện thoại này,
+        không mở lại được slot đã trôi qua.
+      </div>
+    </div>
+    <div class="sf">
+      <button class="btn ghost" onclick="closeSheet()">Đóng</button>
+      <button class="btn" onclick="closeSheet();openReassign(${id})">Chuyển KTV</button>
+    </div>`);
+}
+function setSt(id,st){
+  const a=APPTS.find(x=>x.id===id);
+  if(st==='noshow'){APPTS=APPTS.filter(x=>x.id!==id)}else{a.st=st}
+  closeSheet();renderAdmin();
+}
+
+render();
+</script>
+</body>
+</html>
