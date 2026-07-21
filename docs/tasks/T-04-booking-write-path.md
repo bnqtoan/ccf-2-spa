@@ -76,6 +76,16 @@ Một booking đơn = một `appointment` + đúng một `booking_item`. Cấu t
    - KTV có skill của service → `STAFF_LACKS_SKILL`
    - `[start_at, block_end_at)` nằm gọn trong một ca → `OUTSIDE_SHIFT`
    - Không chồng time_off / item `booked`/`in_service` → `SLOT_TAKEN`
+
+   **Chữ ký hàm phải nhận cờ `isWalkIn: boolean` (mặc định `false`).** Khi
+   `isWalkIn = true`, bỏ qua **đúng hai** luật: lưới 15 phút và "không ở quá
+   khứ" (walk-in bắt đầu tại `now`). Mọi luật còn lại giữ nguyên.
+
+   Cờ này có mặt ngay từ T-04 dù T-04 không dùng tới, vì T-08 (walk-in) sẽ gọi
+   lại chính hàm này. Không có cờ, T-08 buộc phải copy-paste một bản validate
+   thứ hai — và hai bản luật sẽ trôi khỏi nhau. PRD §11 đã ghi sẵn ngoại lệ
+   "trừ `source='walk_in'`", nên đây là yêu cầu đã biết trước, không phải phát
+   sinh.
 2. **`db/bookings.ts`** — hàm load dữ liệu cần cho re-check của **một** KTV tại
    **một** thời điểm (hẹp hơn availability cả ngày, cố ý cho nhanh và ít khoá).
 3. **Route `POST /api/bookings`**:
@@ -122,6 +132,9 @@ Nhấn lại:
 - `đặt trùng giờ nghỉ phép của KTV trả 409 SLOT_TAKEN`
 - `start_at lệch lưới 15 phút trả 422 VALIDATION`
 - `đặt trong quá khứ trả 422 VALIDATION`
+- `validate với isWalkIn=true chấp nhận start_at lệch lưới 15 phút`
+- `validate với isWalkIn=true vẫn chặn KTV thiếu skill`
+- `validate với isWalkIn=true vẫn chặn khi KTV đang bận`
 - `variant_id không tồn tại trả 404 NOT_FOUND`
 - `khách đã có số điện thoại thì tái sử dụng customer cũ, không tạo bản ghi mới`
 - `GET /api/bookings?phone= trả đúng lịch của số đó, không lẫn số khác`
