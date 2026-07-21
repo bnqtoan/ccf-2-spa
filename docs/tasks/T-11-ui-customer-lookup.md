@@ -1,7 +1,7 @@
 ---
 id: T-11
 title: UI tra cứu lịch bằng SĐT + huỷ lịch
-status: todo
+status: done
 model: sonnet
 effort: medium
 depends_on: ["T-09", "T-05"]
@@ -11,7 +11,7 @@ touches:
 prd_refs: ["§6", "§10"]
 owner: null
 started_at: null
-finished_at: null
+finished_at: "2026-07-22"
 ---
 
 # T-11 · UI tra cứu lịch + huỷ lịch
@@ -146,5 +146,64 @@ lại trang — kiểm chứng bằng `npm run e2e -- tests/e2e/customer-lookup.
   ngày giờ) để chốt chặn thật sự chạy qua server, không chỉ qua giả lập UI.
 
 ## Đã làm gì
-(agent điền khi xong)
+- Tạo `src/app/routes/lookup/{LookupPage.tsx,api.ts,format.ts,lookup.css}`.
+  `api.ts` là fetch helper riêng (không đụng `src/app/api/client.ts` của T-10)
+  gọi thẳng `GET /api/bookings?phone=` và `POST /api/bookings/:id/cancel`.
+  `LookupPage` có 2 màn (nhập SĐT → danh sách) dùng lại nguyên
+  `Button/Card/Pill/Field/Notice/EmptyState` của T-09, không viết lại style
+  base. `lookup.css` chỉ thêm class layout riêng (`.ccf-lk-*`) không có trong
+  `components.css` (bảng `.bk/.label/.row/.tel/.acts` của prototype), và ghi
+  đè `font-size: 15px` tại điểm dùng cho `Notice` (shared component mặc định
+  14.5px, dưới ngưỡng 15px card yêu cầu) — không sửa `components.css` vì
+  ngoài `touches`.
+- Thêm đúng 1 dòng import + 1 dòng `<Route path="/lookup">` vào
+  `src/app/main.tsx` (ngoài `touches` khai báo, nhưng cần thiết để route mở
+  được — cùng cách T-10/T-12 cũng làm với route của họ, xác nhận qua commit
+  history: mỗi task thêm đúng 1 dòng, không sửa cấu trúc file, an toàn merge
+  song song).
+- Cutoff hiển thị dùng đồng hồ trình duyệt (`hoursUntil`) CHỈ để quyết định
+  hiện nút Huỷ hay thẻ hotline; khi bấm Huỷ luôn gọi server thật. Nhánh 409
+  `CANCEL_TOO_LATE` bất ngờ (kể cả khi UI đã hiện nút Huỷ) chuyển ngay sang
+  giao diện hotline giống hệt case <2 tiếng tính trước, không hiện mã lỗi.
+- Bỏ hiển thị "giá" trong dòng lịch hẹn: `GET /api/bookings?phone=` (T-04,
+  `CustomerBookingRow` trong `src/worker/db/bookings.ts`) không trả trường
+  giá — card yêu cầu hiện giá nhưng API thật không có. Không tự thêm cột vào
+  response (ngoài `touches`, và sẽ đụng T-04 đã test xong); giữ nguyên phần
+  còn lại (giờ, dịch vụ, KTV) đúng API thật.
+- Test `tests/e2e/customer-lookup.spec.ts`: seed dữ liệu bằng cách ghi thẳng
+  `customers/appointments/booking_items` qua `wrangler d1 execute --local
+  --file=` (cùng cơ chế CLI `db:seed:local` dùng), CHỦ ĐỘNG KHÔNG chạy lệnh
+  seed đầy đủ (nó xoá sạch bảng) vì 2 agent khác (T-10, T-12) chạy song song
+  trên cùng D1 local — chỉ INSERT thêm dữ liệu của riêng phone ngẫu nhiên mỗi
+  test, không bao giờ DELETE. Case "dưới 2 tiếng": seed `start_at = now +
+  90*60`. Case 409 bất ngờ: seed `start_at = now + 120*60 + 8`, chờ 10s rồi
+  mới bấm Huỷ để "now" server thật trôi qua ranh giới cutoff trong lúc UI đã
+  hiện nút — mô phỏng đúng "khách mở trang lâu rồi mới bấm" theo PRD, không
+  phụ thuộc giờ/ngày chạy thật.
+- Test chạy `test.describe.configure({ mode: 'serial' })` trong file này +
+  retry-with-backoff quanh lệnh `wrangler d1 execute`: nhiều tiến trình
+  wrangler mở cùng file sqlite cục bộ đồng thời từng gây `SQLITE_BUSY` ngẫu
+  nhiên (bắt được khi chạy lại nhiều lần ở chế độ song song mặc định).
+- Đã tự mở trình duyệt thật (`npm run dev`, cả `/lookup` cho SĐT có lịch xa
+  giờ và SĐT có lịch <2 tiếng) và đo computed style thay vì tin mắt thường:
+  nút "Huỷ lịch" — `color:#b4342b` trên nền trắng (tương phản 6.06:1),
+  17px, system sans-serif, cao đúng 48px; thẻ `tel:` — `color:#1c4a3a`
+  (10.05:1), 18px/700, cao đúng 48px, `href="tel:02838221179"` đúng; chữ
+  trong `.ccf-lk-what` 15px (tương phản 6.85:1). Bắt được 1 lỗi thật mà test
+  Playwright không đo: `Notice` dùng chung có `font-size:14.5px`, dưới
+  ngưỡng 15px card yêu cầu — đã sửa bằng override tại điểm dùng (xem trên).
+- Trong lúc kiểm bằng trình duyệt, gặp sự cố tạm thời do 2 agent song song
+  (T-10 đặt `src/app/api/client.ts` — đường dẫn này bị Cloudflare Worker
+  route `/api/*` (`run_worker_first` trong `wrangler.jsonc`) chặn mất, khiến
+  cả bundle SPA crash lúc load module vì `main.tsx` import tĩnh xuyên qua
+  `GuestPage → BookingPage → api/client.ts`). Đã tự chẩn đoán qua network
+  trace, xác nhận không phải lỗi của route `/lookup`, và spawn 1 task riêng
+  báo lỗi này cho T-10 xử lý (không tự sửa file của họ). T-10 tự khắc phục
+  bằng cách dời file sang `src/app/lib/apiClient.ts`; sau đó `/lookup` chạy
+  lại bình thường và đã kiểm chứng xong.
+- `npm run typecheck` xanh cho toàn bộ file của mình (một số lỗi TS khác
+  trong `src/app/routes/booking/` và `src/app/routes/admin/timeline/` thuộc
+  T-10/T-12 đang chạy song song, không liên quan phạm vi T-11).
+- `npm run e2e -- tests/e2e/customer-lookup.spec.ts`: 8/8 xanh, chạy lại
+  nhiều lần ổn định.
 </content>

@@ -1,7 +1,7 @@
 ---
 id: T-10
 title: UI khách đặt lịch — dịch vụ → gói → giờ → xác nhận
-status: review
+status: done
 model: sonnet
 effort: high
 depends_on: ["T-09", "T-04"]

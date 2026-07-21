@@ -47,8 +47,3 @@ export function formatWhen(epochSec: number, nowSec: number = Math.floor(Date.no
 export function hoursUntil(startAtSec: number, nowSec: number = Math.floor(Date.now() / 1000)): number {
   return (startAtSec - nowSec) / 3600
 }
-
-/** "350.000₫" — định dạng VND theo văn phong prototype (dấu chấm phân cách). */
-export function formatVnd(amount: number): string {
-  return `${Math.round(amount).toLocaleString('vi-VN')}₫`
-}

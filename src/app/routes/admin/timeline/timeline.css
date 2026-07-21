@@ -1,0 +1,245 @@
+/*
+ * Timeline admin — port từ prototype/index.html:
+ * .qbar/.datenav (dòng 248-252), .banner (254-259), .tl*/.ev*/.legend (261-288).
+ * Prefix "ccf-tl-" để tránh đụng components.css dùng chung.
+ */
+
+.ccf-tl-page {
+  padding: 16px;
+}
+@media (max-width: 720px) {
+  .ccf-tl-page {
+    padding: 12px;
+  }
+}
+
+/* ---------- reassign banner (prototype dòng 254-259) ---------- */
+.ccf-tl-banner {
+  background: var(--warn-bg);
+  border: 1.5px solid var(--warn-line);
+  border-radius: var(--r);
+  padding: 14px;
+  margin-bottom: 16px;
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+}
+.ccf-tl-banner .ccf-tl-banner-ic {
+  font-size: 22px;
+  line-height: 1.1;
+}
+.ccf-tl-banner .ccf-tl-banner-title {
+  font-weight: 660;
+  color: var(--warn-ink);
+  margin-bottom: 2px;
+}
+.ccf-tl-banner .ccf-tl-banner-body {
+  font-size: 14.5px;
+  color: var(--warn-ink);
+  opacity: 0.92;
+}
+
+/* ---------- date nav bar (prototype dòng 248-252) ---------- */
+.ccf-tl-qbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.ccf-tl-datenav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1.5px solid var(--line);
+  border-radius: 11px;
+  background: var(--white);
+  padding: 3px;
+}
+.ccf-tl-datenav button {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--g-700);
+  font-size: 17px;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.ccf-tl-datenav .ccf-tl-cur {
+  padding: 0 12px;
+  font-weight: 640;
+  font-size: 15px;
+}
+
+/* ---------- timeline grid (prototype dòng 262-271) ---------- */
+.ccf-tl {
+  border: 1.5px solid var(--line);
+  border-radius: var(--r);
+  background: var(--white);
+  overflow: auto;
+}
+.ccf-tl-grid {
+  display: grid;
+  grid-template-columns: 58px repeat(var(--cols), minmax(132px, 1fr));
+  min-width: max-content;
+}
+.ccf-tl-head {
+  position: sticky;
+  top: 0;
+  background: var(--g-50);
+  z-index: 2;
+  border-bottom: 1.5px solid var(--line);
+  padding: 11px 8px;
+  font-size: 13.5px;
+  font-weight: 660;
+  text-align: center;
+}
+.ccf-tl-head .ccf-tl-off-label {
+  font-size: 11.5px;
+  color: var(--danger);
+  font-weight: 600;
+  display: block;
+}
+.ccf-tl-hour {
+  border-right: 1.5px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-3);
+  padding: 5px 7px;
+  text-align: right;
+  position: sticky;
+  left: 0;
+  background: var(--white);
+  z-index: 1;
+}
+.ccf-tl-cell {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  position: relative;
+  height: 52px;
+}
+
+/* ---------- event blocks (prototype dòng 272-284) ---------- */
+.ccf-tl-ev {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  border-radius: 9px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+  line-height: 1.28;
+  overflow: hidden;
+  border-left: 3px solid;
+  cursor: pointer;
+  min-height: 20px;
+  text-align: left;
+  border-top: none;
+  border-bottom: none;
+  border-right: none;
+  font-family: inherit;
+}
+/* block ngắn (≤30' hiển thị): chỉ đủ chỗ tên khách, ẩn tên dịch vụ */
+.ccf-tl-ev--short {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.ccf-tl-ev--short .ccf-tl-ev-sv {
+  display: none;
+}
+.ccf-tl-ev--booked {
+  background: var(--g-100);
+  border-color: var(--g-600);
+  color: var(--g-900);
+}
+.ccf-tl-ev--in_service {
+  background: #dbeafe;
+  border-color: #2563eb;
+  color: #12325e;
+}
+.ccf-tl-ev--walk_in {
+  background: #fef0d6;
+  border-color: #d99b16;
+  color: #6b4708;
+}
+/* mồ côi (reassign queue) — ưu tiên cao nhất, tô đỏ cảnh báo */
+.ccf-tl-ev--orphan {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: #7d201a;
+}
+/* khối nghỉ đột xuất — z-index THẤP hơn mọi block booking (đặt inline ở component) */
+.ccf-tl-ev--off {
+  background: repeating-linear-gradient(45deg, #eef1f0, #eef1f0 6px, #e4e9e7 6px, #e4e9e7 12px);
+  border-color: #aab5b1;
+  color: var(--ink-3);
+  cursor: default;
+}
+.ccf-tl-ev-name {
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* dải buffer ở đuôi block — dọn dẹp sau dịch vụ (block_end_at - end_at) */
+.ccf-tl-ev-buf {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(20, 52, 42, 0.09);
+  pointer-events: none;
+}
+
+/* ---------- legend (prototype dòng 286-288) ---------- */
+.ccf-tl-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.ccf-tl-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ccf-tl-legend i {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* ---------- sheet content (chi tiết booking) ---------- */
+.ccf-tl-summary .ccf-tl-sline {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14.5px;
+}
+.ccf-tl-summary .ccf-tl-sline .ccf-tl-k {
+  color: var(--ink-3);
+}
+.ccf-tl-summary .ccf-tl-sline .ccf-tl-v {
+  font-weight: 620;
+  text-align: right;
+}
+.ccf-tl-label {
+  font-size: 14px;
+  font-weight: 620;
+  margin: 16px 0 9px;
+}
+.ccf-tl-actions {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.ccf-tl-actions .ccf-btn {
+  width: auto;
+}

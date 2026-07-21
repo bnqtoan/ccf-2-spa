@@ -94,6 +94,13 @@
   text-decoration: none;
 }
 
-.ccf-lk-notice-margin {
+/*
+ * Notice dùng chung (src/app/components/Notice.tsx, ngoài touches của T-11)
+ * có .ccf-notice{font-size:14.5px} — dưới ngưỡng 15px card này yêu cầu cho
+ * khách phổ thông trên điện thoại. Không sửa components.css (không thuộc
+ * phạm vi), chỉ ghi đè tại điểm dùng của mình bằng selector cụ thể hơn.
+ */
+.ccf-notice.ccf-lk-notice-margin {
   margin: 12px 0 0;
+  font-size: 15px;
 }

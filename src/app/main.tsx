@@ -5,6 +5,7 @@ import GuestPage from './pages/GuestPage'
 import AdminPage from './pages/AdminPage'
 import ComponentsDemo from './components/ComponentsDemo'
 import LookupPage from './routes/lookup/LookupPage'
+import TimelinePage from './routes/admin/timeline/TimelinePage'
 import './styles/tokens.css'
 
 const root = document.getElementById('root')
@@ -18,6 +19,7 @@ createRoot(root).render(
       <Routes>
         <Route path="/" element={<GuestPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin/timeline" element={<TimelinePage />} />
         <Route path="/lookup" element={<LookupPage />} />
         <Route path="/dev/components" element={<ComponentsDemo />} />
       </Routes>

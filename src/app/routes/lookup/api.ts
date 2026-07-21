@@ -1,5 +1,5 @@
 // Fetch helpers riêng cho màn tra cứu lịch (T-11). KHÔNG dùng chung
-// `src/app/api/client.ts` — file đó thuộc T-10 (đang chạy song song), sửa nó
+// `src/app/lib/apiClient.ts` — file đó thuộc T-10 (đang chạy song song), sửa nó
 // dễ đụng độ merge. Đây là bản tối giản, tự chứa trong thư mục lookup/.
 
 export interface CustomerBooking {

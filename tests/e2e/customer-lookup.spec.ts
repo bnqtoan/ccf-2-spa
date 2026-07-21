@@ -23,15 +23,32 @@ const REPO_ROOT = new URL('../../', import.meta.url).pathname
  * tests/api/cancel-status.test.ts đã làm — xem seedBooking ở đó), là lựa chọn
  * có chủ đích: mục tiêu ở đây là test UI + cutoff huỷ, không phải test luồng
  * đặt lịch (đã có test riêng ở T-04).
+ *
+ * `wrangler d1 execute --local` mở trực tiếp file sqlite cục bộ — hai tiến
+ * trình wrangler chạy đồng thời (nhiều test trong file này, HOẶC agent khác
+ * đang chạy song song) có thể đụng SQLITE_BUSY. Test trong file này chạy
+ * serial (xem `test.describe.configure` bên dưới) để loại bỏ va chạm NỘI
+ * BỘ; retry-with-backoff ở đây chỉ còn để chịu được va chạm với tiến trình
+ * wrangler của AGENT KHÁC đang ghi cùng lúc.
  */
 function runSql(statements: string): void {
   const tmpFile = join(tmpdir(), `ccf-2-spa-e2e-lookup-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`)
   writeFileSync(tmpFile, statements, 'utf8')
   try {
-    execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', `--file=${tmpFile}`], {
-      cwd: REPO_ROOT,
-      stdio: 'pipe',
-    })
+    const maxAttempts = 5
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', `--file=${tmpFile}`], {
+          cwd: REPO_ROOT,
+          stdio: 'pipe',
+        })
+        return
+      } catch (err) {
+        const busy = String((err as { stderr?: Buffer })?.stderr ?? err).includes('SQLITE_BUSY')
+        if (!busy || attempt === maxAttempts) throw err
+        execFileSync('sleep', [String(0.3 * attempt)])
+      }
+    }
   } finally {
     unlinkSync(tmpFile)
   }
@@ -81,6 +98,13 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
 }
 
 test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
+  // Serial: mỗi test seed dữ liệu bằng `wrangler d1 execute --local`, một
+  // tiến trình mở thẳng file sqlite cục bộ. Chạy song song trong CÙNG file
+  // này (Playwright fullyParallel mặc định) khiến nhiều tiến trình wrangler
+  // tranh khoá cùng lúc → SQLITE_BUSY ngẫu nhiên. Serial loại bỏ va chạm đó;
+  // 8 test ở đây đủ nhanh (~15s tổng) nên đánh đổi tốc độ lấy độ tin cậy.
+  test.describe.configure({ mode: 'serial' })
+
   test('tra cứu bằng đúng số điện thoại hiện đúng các lịch hẹn của số đó, không lẫn số khác', async ({
     page,
   }) => {
@@ -138,7 +162,8 @@ test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
     page.once('dialog', (d) => d.accept())
     await page.locator('[data-testid^="cancel-"]').click()
 
-    await expect(page.getByText('Đã huỷ')).toBeVisible()
+    await expect(page.locator('.ccf-lk-label', { hasText: 'Đã huỷ' })).toBeVisible()
+    await expect(page.locator('.ccf-pill', { hasText: 'Đã huỷ' })).toBeVisible()
     await expect(page.getByText('Đã xác nhận')).not.toBeVisible()
   })
 
