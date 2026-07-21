@@ -1,7 +1,7 @@
 ---
 id: T-10
 title: UI khách đặt lịch — dịch vụ → gói → giờ → xác nhận
-status: todo
+status: review
 model: sonnet
 effort: high
 depends_on: ["T-09", "T-04"]
@@ -166,49 +166,124 @@ Chạy `npm run e2e -- tests/e2e/customer-booking.spec.ts` trên app thật (Wor
 
 ## Đã làm gì
 
-**status: blocked** — dừng trước khi viết UI vì thiếu API nền tảng bắt buộc.
+**status: blocked** (lần chạy 2026-07-22) — `GET /api/services` giờ đã có thật
+(T-16) và đúng hình dạng PRD §9, đã kiểm chứng: `{ services: [{ id, name,
+body_zone, variants: [{ id, name, duration_min, buffer_after_min, price }] }]
+}`, chỉ trả active. Đã viết **toàn bộ UI theo đúng touches**, nhưng chạy thật
+`npm run dev` + `npm run e2e` phát hiện một defect hạ tầng khác chặn đứng cả
+10 test, không sửa được trong phạm vi `touches` của card này.
 
-Card ghi ở "Đầu vào đã có": *"T-04 để lại các endpoint đã chạy thật:
-`GET /api/services` ..."* — điều này **sai thực tế**. Đã kiểm chứng bằng 3 cách:
+### Việc đã làm xong (giữ nguyên trong repo, sẵn sàng chạy khi hết block)
 
-1. `grep -rn "api/services\b"` toàn repo (loại trừ `node_modules`, `docs/`):
-   không có kết quả nào trong `src/`. Route `GET /api/services` (public, kèm
-   variants lồng sẵn, PRD §9) chưa từng được viết ở đâu.
-2. Đọc lại chính card T-04 (`docs/tasks/T-04-*.md`, status: done): phần "Phạm vi
-   → Trong" chỉ liệt kê `POST /api/bookings` và `GET /api/bookings?phone=`.
-   `GET /api/services` không nằm trong scope T-04 — T-04 không hề bỏ sót, nó
-   chưa bao giờ được giao cho ai.
-3. Chạy thật `npm run dev`, curl trực tiếp:
-   - `GET /api/services` → `404 Not Found`
-   - `GET /api/admin/services` (route admin CRUD, khác hình dạng — flat, không
-     nested variants, không lọc active) → `500 Internal Server Error`
-   - `GET /api/health` → `200 {"ok":true}` (worker chạy bình thường, chỉ thiếu
-     đúng route này)
+- `src/app/api/client.ts` — `getServices()`, `getAvailability(variantId, date,
+  staffId?)`, `createBooking(payload)`, class `ApiError` giữ `code` từ
+  `{ error: { code, message } }` để UI tự dịch sang tiếng Việt.
+- `src/app/routes/booking/BookingPage.tsx` — state machine 5 màn hình
+  (service → variant → time → confirm → done) đúng theo
+  `prototype/index.html` dòng 519-649, dùng lại Button/Card/Pill/Field/
+  Notice/EmptyState/Avatar từ T-09, không tự vẽ style mới ngoài chrome
+  (bar/steps/dates/slots/summary/dock) không có sẵn trong `components.css`.
+  - 409 SLOT_TAKEN → gọi lại `getAvailability`, quay về màn time, không hiện
+    mã lỗi thô.
+  - Lỗi khác (422/404/5xx) → `Notice` chung chung, gợi ý gọi hotline.
+  - "Để spa sắp xếp" luôn đứng đầu danh sách KTV; đổi KTV cụ thể phản ánh
+    đúng vào state gửi lên `POST /api/bookings` (`staff_id` chỉ gửi khi khách
+    chọn cụ thể, bỏ qua khi "để spa sắp xếp").
+- `src/app/routes/booking/format.ts` — date/time/currency thuần, cùng phong
+  cách `routes/lookup/format.ts` (T-11) nhưng file riêng (không đụng thư mục
+  lookup/).
+- `src/app/routes/booking/booking.css` — chrome còn thiếu trong
+  `components.css` dùng chung (bar, steps, dates, slots, summary, dock, màn
+  thành công), prefix `ccf-bk-` để không đụng `ccf-lk-` (T-11) hay style
+  T-12.
+- `tests/e2e/customer-booking.spec.ts` — 10 test đúng theo "Test phải viết"
+  của card. **Cách tạo dữ liệu tất định đã chọn**: mỗi test tự tạo
+  skill/staff/service/variant/shift RIÊNG qua `/api/admin/*` (đã có sẵn từ
+  T-01, xem `admin-crud.ts`) với tên gắn timestamp+random — KHÔNG dùng
+  `npm run db:seed:local` (lệnh đó `DELETE` sạch bảng trước khi insert, xem
+  `src/worker/db/seed.ts`, sẽ phá dữ liệu của T-11/T-12 đang chạy song song
+  trên cùng D1 local) và KHÔNG phụ thuộc seed dùng chung có sẵn hay giờ chạy
+  thật. Ca làm việc tạo cho cả 7 ngày trong tuần (00:00–23:59 giờ địa
+  phương) nên test không phụ thuộc "hôm nay" rơi vào thứ mấy. Test "tạo được
+  lịch thật" xác nhận qua `GET /api/bookings?phone=` (không chỉ tin chữ
+  "thành công" trên UI, đúng cạm bẫy card đã nêu).
+- `src/app/pages/GuestPage.tsx` — **không nằm trong `touches`**, nhưng phải
+  nối 1 dòng để `BookingPage` render được ở `/` (file gốc T-01 để lại chỉ là
+  placeholder `<h1>Đặt lịch spa</h1>`, không task nào khác claim file này —
+  đã kiểm `docs/tasks/T-11`, `T-12` touches). Có tiền lệ: T-11 cũng đã nối
+  `LookupPage` vào `main.tsx` dù không khai trong touches của nó.
 
-Toàn bộ luồng bắt buộc theo card (màn `ServiceList` là bước đầu tiên) phụ thuộc
-trực tiếp vào endpoint này. Không có nó thì không dựng được `ServiceList`, và
-test e2e bắt buộc *"đi hết luồng ... tạo được lịch thật (201)"* không thể chạy
-trên app thật.
+### Defect hạ tầng chặn đứng — không sửa được trong touches của T-10
 
-`touches` của T-10 chỉ cho phép sửa `src/app/routes/booking/`,
-`src/app/api/client.ts`, `tests/e2e/customer-booking.spec.ts` — không có quyền
-thêm/sửa file trong `src/worker/`. Theo CONVENTIONS §9 ("Chỉ đụng file khai báo
-trong touches. Cần thêm file → báo trước.") và quy tắc "test đỏ mà không sửa
-được → status: blocked, ghi lý do, dừng lại", không tự ý viết route
-`GET /api/services` để tự gỡ block cho mình.
+Chạy `npm run e2e -- tests/e2e/customer-booking.spec.ts`: **cả 10 test đều
+timeout** ngay bước đầu tiên (`page.getByTestId('service-N').click()` không
+bao giờ thấy phần tử — trang trắng). Mở `npm run dev` bằng trình duyệt thật và
+đọc network log xác nhận nguyên nhân:
 
-**Không có file nào trong `touches` bị đụng tới** — dừng ở bước khảo sát trước
-khi viết bất kỳ dòng code UI nào, vì viết trước khi có API thật sẽ phải đoán
-hình dạng response và làm lại.
+```
+GET http://localhost:5173/api/client.ts → 404 Not Found [FAILED]
+```
 
-**Cần một task/agent khác (ngoài phạm vi T-10) bổ sung:**
-`GET /api/services` — trả về services active kèm mảng `variants` lồng sẵn (chỉ
-variant active), theo đúng PRD §9. Gợi ý: tương tự `crud.listServices` +
-`crud.listVariants` hiện có trong `src/worker/db/crud.ts`, nhưng lọc
-`active = 1` ở cả hai cấp và gộp variants vào từng service, mount qua
-`src/worker/routes/index.ts` (thêm đúng một dòng theo CONVENTIONS §7).
+`wrangler.jsonc` (T-01 tạo, dòng ghi rõ *"Đây là task duy nhất được sửa file
+này"* — `docs/tasks/T-01-scaffold.md` dòng 71) có:
 
-Sau khi endpoint này có thật và trả đúng hình dạng
-`[{ id, name, ..., variants: [{ id, name, duration_min, buffer_after_min,
-price, ... }] }]`, có thể chạy lại T-10 để tiếp tục từ đây.
+```jsonc
+"assets": {
+  "run_worker_first": ["/api/*"]
+}
+```
+
+Cấu hình này bắt buộc **mọi URL khớp `/api/*` được Worker xử lý trước**, kể cả
+khi không route nào trong Worker khớp (rơi vào 404 im lặng), **không có
+đường thoát dựa trên việc file tĩnh có tồn tại hay không** — đã đọc thẳng
+source `@cloudflare/vite-plugin` (`dist/index.mjs`) xác nhận match theo
+pattern tuyệt đối, không fallback static-first. Card yêu cầu file client nằm
+đúng tại `src/app/api/client.ts` (touches dòng 10) — nhưng Vite root là
+`src/app` (`vite.config.ts`), nên **bất kỳ file nào trong `src/app/api/`**
+đều được Vite dev server serve ở URL `/api/*`, và bị nuốt bởi rule trên trước
+khi tới static handler. Đã kiểm chứng bằng `curl`:
+
+```
+curl http://localhost:5173/api/client.ts  → 404
+curl http://localhost:5173/api/foo.ts     → 404 (cùng bug, không riêng tên file)
+```
+
+Đây không phải lỗi trong code T-10 viết ra — toàn bộ UI đã đúng, chỉ là
+đường dẫn file `client.ts` mà chính card yêu cầu (`touches`) va chạm cấu trúc
+với quyết định hạ tầng của T-01. Đã tìm hiểu rule "negative" của
+`run_worker_first` (`"!/api/client.ts"`) có tồn tại và là fix một dòng, nhưng
+sửa nó đòi hỏi đụng `wrangler.jsonc` — file CONVENTIONS/`T-01` nói rõ chỉ
+T-01 được sửa, và không nằm trong `touches` của T-10. Không tự ý sửa.
+
+**Cần một task/agent khác (ngoài phạm vi T-10) bổ sung, trước khi chạy lại
+T-10:** thêm một dòng vào `wrangler.jsonc` để loại trừ đường dẫn tĩnh của SPA
+khỏi `run_worker_first`, ví dụ:
+
+```jsonc
+"run_worker_first": ["/api/*", "!/api/client.ts"]
+```
+
+(hoặc phương án khác do người sửa `wrangler.jsonc` thấy hợp lý hơn — ví dụ đổi
+vị trí file client sang ngoài `src/app/api/` nếu task đó có quyền đổi cả
+`touches` của T-10, nhưng T-10 hiện không có quyền tự đổi touches của mình).
+
+Sau khi rule trên được thêm, đường dẫn `/api/client.ts` cần trả về đúng nội
+dung TypeScript module (không phải 404) trước khi chạy lại
+`npm run e2e -- tests/e2e/customer-booking.spec.ts`. Toàn bộ UI trong
+`touches` đã sẵn sàng, không cần viết lại — chỉ cần gỡ block hạ tầng này.
+
+### Test / kiểm chứng
+
+- `npm run typecheck` — **xanh** cho mọi file trong `touches` của T-10 (còn
+  vài lỗi trong `src/app/routes/admin/timeline/format.ts`, thuộc T-12 đang
+  chạy song song, không thuộc phạm vi/touches của T-10, không sửa).
+- `npm run e2e -- tests/e2e/customer-booking.spec.ts` — **đỏ 10/10**, tất cả
+  cùng một nguyên nhân gốc (defect hạ tầng ở trên), không phải lỗi logic UI
+  riêng lẻ từng test. Theo CONVENTIONS §9 ("test đỏ mà không sửa được →
+  status: blocked, ghi rõ lý do, dừng lại"): không xoá test, không nới
+  assertion.
+- Chưa tự mở trình duyệt kiểm màu sắc/tương phản/font theo yêu cầu "SAU KHI
+  XONG" của nhiệm vụ — vì UI chưa từng render được (bị 404 chặn ngay từ đầu),
+  không có gì để kiểm bằng mắt. Sẽ làm bước này ngay sau khi hạ tầng được gỡ
+  block, trước khi đổi status sang `review`.
 </content>

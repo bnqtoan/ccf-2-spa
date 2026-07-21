@@ -68,11 +68,26 @@ block_end_at = start_at + variant.duration_min + variant.buffer_after_min
 ```
 src/worker/        Hono app, routes, D1 queries
 src/worker/lib/    logic thuần (availability, validation) — không import D1
-src/app/           React SPA (Vite)
+src/app/           React SPA (Vite) — Vite root là thư mục này
+src/app/lib/       helper dùng chung của SPA (apiClient…)
 migrations/        D1 SQL migrations, đánh số tăng dần
 tests/api/         Vitest chạy trong workerd + D1 thật
 tests/e2e/         Playwright
 ```
+
+### `src/app/api/` là thư mục CẤM
+
+Vite root là `src/app`, nên một file ở `src/app/api/x.ts` có URL dev là
+`/api/x.ts`. `wrangler.jsonc` đặt `run_worker_first: ["/api/*"]`, khớp theo tiền
+tố và **không** fallback về file tĩnh — Worker nuốt request, trả 404, SPA trắng
+trang.
+
+Đã xảy ra thật: T-10 đặt `src/app/api/client.ts`, toàn bộ 10 test E2E timeout ở
+thao tác đầu tiên vì trang không bao giờ render. Triệu chứng không hề gợi ra
+nguyên nhân.
+
+Helper SPA đặt ở **`src/app/lib/`**. Đừng sửa `run_worker_first` để né — namespace
+`/api/*` thuộc về Worker, và SPA không nên tranh chấp nó.
 
 Logic nghiệp vụ đặt trong `src/worker/lib/` dưới dạng **hàm thuần nhận dữ liệu
 đã load sẵn**, không tự query. Như vậy test được không cần DB, và tầng route chỉ
