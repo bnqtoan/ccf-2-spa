@@ -1,7 +1,7 @@
 ---
 id: T-02
 title: Schema D1 + migrations + seed data
-status: todo
+status: done
 model: sonnet
 effort: medium
 depends_on: ["T-01"]
@@ -14,7 +14,7 @@ touches:
 prd_refs: ["§3.2", "§3.3", "§3.4"]
 owner: null
 started_at: null
-finished_at: null
+finished_at: "2026-07-21"
 ---
 
 # T-02 · Schema D1 + migrations + seed data
@@ -130,4 +130,48 @@ Massage đang có ca làm thứ Hai" bằng một câu SQL join qua `staff_skill
   phải `INT`.
 
 ## Đã làm gì
-(agent điền khi xong)
+
+**PHÁT HIỆN QUAN TRỌNG — FK CÓ ENFORCE THẬT (khác giả định mặc định của card):**
+Trong ngữ cảnh test hiện tại (`@cloudflare/vitest-pool-workers` 0.18.6, D1 local
+qua Miniflare), `PRAGMA foreign_keys` **đã bật sẵn**. Verify bằng test thật:
+insert `staff` → `booking_items` rồi `DELETE FROM staff WHERE id = ?` ném lỗi
+`FOREIGN KEY constraint failed (SQLITE_CONSTRAINT_TRIGGER)` — không bị bỏ qua
+âm thầm. `ON DELETE RESTRICT` khai báo trong schema là ràng buộc **runtime
+thật**, không chỉ là tài liệu ý định, ít nhất trong D1 local/test. Hành vi trên
+D1 remote/production chưa được xác nhận riêng ở task này — T-03+ nên tự chặn
+xoá staff ở tầng ứng dụng (soft delete qua `active = 0`) thay vì dựa hoàn toàn
+vào DB backstop, phòng khi remote khác local.
+
+**Gotcha quan trọng khác — `vitest-pool-workers` không tự áp migration:**
+`wrangler.jsonc`'s `migrations_dir` chỉ được đọc bởi CLI `wrangler d1
+migrations`, KHÔNG được `cloudflareTest()` tự áp cho D1 binding trong test.
+`tests/api/schema.test.ts` phải tự nạp `migrations/0001_init.sql` (qua Vite
+`?raw` import + một hàm tách statement tối giản dựa trên `;` và `--` comment,
+viết tay — không import package `wrangler` vào trong worker test vì nó crash
+runtime workerd) và chạy trong `beforeAll`. Đã verify thực nghiệm: D1 storage
+được **share giữa các `it()` trong cùng một file test** (không phải isolate
+từng test), nên `beforeAll` chạy migration một lần là đủ; mỗi test vẫn tự
+seed/cleanup dữ liệu riêng theo CONVENTIONS §8.
+
+**CLI seed (`db:seed:local`) không có D1 binding ngoài Worker:** giải quyết
+bằng cách `seed.ts` export `buildSeedStatements()` (list SQL + params, dùng
+subquery theo tên tự nhiên thay vì id cứng — an toàn khi bảng bị xoá sạch rồi
+insert lại nhiều lần) làm nguồn sự thật duy nhất; `seed(db)` (dùng trong test)
+chạy statement đó qua binding D1 thật, còn CLI (`node
+--experimental-strip-types src/worker/db/seed.ts`, chạy được nhờ Node 22 hỗ
+trợ strip-types và file không có runtime import nào ngoài ambient type) inline
+cùng dữ liệu đó thành SQL literal rồi gọi `wrangler d1 execute DB --local
+--file=`. Đã verify: migrate sạch trên DB rỗng (18 lệnh), seed chạy 2 lần liên
+tiếp không đổi số dòng (4 skill / 5 KTV / 8 variant / 2 booking_items), và câu
+query "KTV có skill Massage đang có ca thứ Hai" trả đúng 2 người (Lan, Huong)
+đúng như seed tạo.
+
+Migration `0001_init.sql` tạo đủ 10 bảng + 8 index theo PRD §3.2, CHECK
+constraint cho status/source/body_zone/weekday/start_min<end_min, FK toàn bộ
+dùng `ON DELETE RESTRICT`. `end_at` và `block_end_at` giữ tách biệt trong
+`booking_items` như PRD §3.1 yêu cầu — không gộp.
+
+`npm run typecheck`, `npm test` (14 test: 2 smoke + 12 schema), `npm run
+db:migrate:local`, `npm run db:seed:local` (chạy 2 lần) đều xanh. `npm run
+e2e` cũng xanh (13 test, không liên quan phạm vi task này — không đụng gì
+ngoài `touches`).

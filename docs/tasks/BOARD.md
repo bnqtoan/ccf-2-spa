@@ -18,14 +18,14 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | Mã | Tiêu đề | Status | Model | Depends |
 |---|---|---|---|---|
 | T-01 | Scaffold Worker + Hono + D1 + Vite SPA + test | done | sonnet | — |
-| T-02 | Schema D1 + migrations + seed | todo | sonnet | T-01 |
+| T-02 | Schema D1 + migrations + seed | done | sonnet | T-01 |
 | T-03 | **Availability engine** + `GET /api/availability` | todo | **opus** | T-02 |
 | T-04 | **Booking write path** + re-check + 409 SLOT_TAKEN | todo | **opus** | T-03 |
 | T-05 | Cancel + cutoff 2h + status transitions | todo | sonnet | T-04 |
 | T-06 | Admin CRUD API | todo | codex | T-02 |
 | T-07 | **Time-off + affected_items + reassign queue** | todo | **opus** | T-04 |
 | T-08 | Walk-in API (miễn lưới 15') | todo | sonnet | T-04 |
-| T-09 | Design tokens + component base | todo | sonnet | T-01 |
+| T-09 | Design tokens + component base | done | sonnet | T-01 |
 | T-10 | UI khách: đặt lịch | todo | sonnet | T-09, T-04 |
 | T-11 | UI khách: tra cứu + huỷ | todo | sonnet | T-09, T-05 |
 | T-12 | UI admin: day timeline | todo | sonnet | T-09, T-07 |

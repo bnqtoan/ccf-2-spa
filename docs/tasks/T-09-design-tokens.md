@@ -1,7 +1,7 @@
 ---
 id: T-09
 title: Design tokens + component base dùng chung
-status: review
+status: done
 model: sonnet
 effort: medium
 depends_on: ["T-01"]
