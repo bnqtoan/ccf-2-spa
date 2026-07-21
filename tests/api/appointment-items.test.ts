@@ -131,7 +131,26 @@ async function postItem(appointmentId: number | string, body: unknown): Promise<
   return { status: res.status, body: await res.json() }
 }
 
-const DATE = '2026-07-22'
+/**
+ * Ngày dùng cho mọi test trong file: 7 ngày TỚI, tính động.
+ *
+ * Bản đầu để cứng `'2026-07-22'` và lấy `dayStart + 3600` (01:00 sáng hôm đó).
+ * Test xanh khi viết lúc 00:xx, rồi đỏ hàng loạt lúc 01:42 cùng ngày — mọi
+ * request trả 422 VALIDATION vì `start_at` đã trôi vào quá khứ. Lỗi trông như
+ * lỗi logic nhưng thực ra là test tự hết hạn theo đồng hồ.
+ *
+ * Ngày động thì luôn ở tương lai, bất kể chạy lúc nào.
+ */
+const DATE = (() => {
+  const d = new Date(Date.now() + 7 * 24 * 3600 * 1000)
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d)
+  return parts // en-CA cho đúng dạng YYYY-MM-DD
+})()
 
 describe('POST /api/admin/appointments/:id/items', () => {
   beforeEach(wipe)

@@ -163,7 +163,21 @@ async function itemStatus(itemId: number): Promise<{ status: string; cancelled_a
 }
 
 // A fixed FUTURE Monday so "in the past" never interferes with cutoff maths.
-const FUTURE_DATE = '2026-08-03'
+/**
+ * Ngày dùng cho test: N ngày TỚI, tính động theo giờ spa.
+ * Ngày cứng là bom hẹn giờ — test xanh hôm nay, đỏ vào một ngày nào đó khi
+ * mốc đó trôi vào quá khứ, và lỗi trông như lỗi logic chứ không như test hết
+ * hạn. Đã xảy ra thật với appointment-items.test.ts.
+ */
+function futureDateStr(daysAhead: number): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(Date.now() + daysAhead * 24 * 3600 * 1000))
+}
+const FUTURE_DATE = futureDateStr(12)
 const FUTURE_WEEKDAY = 1
 
 /** Local wall-clock on FUTURE_DATE → epoch seconds. */

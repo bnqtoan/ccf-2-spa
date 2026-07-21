@@ -122,7 +122,22 @@ async function getSchedule(date: string | undefined): Promise<{ status: number; 
   return { status: res.status, body: await res.json() }
 }
 
-const DATE = '2026-07-22'
+/**
+ * Ngày dùng cho test: N ngày TỚI, tính động theo giờ spa.
+ * Ngày cứng là bom hẹn giờ — test xanh hôm nay, đỏ vào một ngày nào đó khi
+ * mốc đó trôi vào quá khứ, và lỗi trông như lỗi logic chứ không như test hết
+ * hạn. Đã xảy ra thật với appointment-items.test.ts.
+ */
+function futureDateStr(daysAhead: number): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(Date.now() + daysAhead * 24 * 3600 * 1000))
+}
+const DATE = futureDateStr(7)
+const OTHER_DATE = futureDateStr(5)
 
 describe('GET /api/admin/schedule', () => {
   beforeEach(wipe)
@@ -164,7 +179,7 @@ describe('GET /api/admin/schedule', () => {
     const skill = await insertSkill('Massage')
     const lan = await insertStaff('Lan', [skill])
     const variant = await insertVariant(skill, { duration: 60, buffer: 0 })
-    const { start: otherDayStart } = localDayBounds('2026-07-20')
+    const { start: otherDayStart } = localDayBounds(OTHER_DATE)
     await seedBooking(lan, variant, otherDayStart + 3600, 60, 0)
 
     const { body } = await getSchedule(DATE)
@@ -243,5 +258,37 @@ describe('GET /api/admin/schedule', () => {
     const { status, body } = await getSchedule('22-07-2026')
     expect(status).toBe(422)
     expect(body.error.code).toBe('VALIDATION')
+  })
+})
+
+describe('GET /api/admin/schedule — giới hạn bound params của D1', () => {
+  beforeEach(wipe)
+
+  // D1 chỉ cho 100 bound params mỗi statement (không phải 999 như SQLite bản
+  // thường). Bản đầu bind từng staff_id qua `IN (?, ?, …)` nên spa có ~98+ KTV
+  // active nhận HTTP 500 — đã tái hiện thật với 120 KTV, và nó chặn đứng cả
+  // trang /admin/timeline. Query giờ lọc bằng JOIN staff active nên số param
+  // cố định là 2.
+  it('spa có 120 kỹ thuật viên active vẫn trả 200, không vỡ vì giới hạn tham số', async () => {
+    const skill = await insertSkill('Massage')
+    for (let i = 0; i < 120; i++) await insertStaff(`KTV${i}`, [skill])
+
+    const { status, body } = await getSchedule(DATE)
+    expect(status).toBe(200)
+    expect(body.staff.length).toBe(120)
+  })
+
+  it('với nhiều KTV, booking vẫn về đúng cột của đúng người', async () => {
+    const skill = await insertSkill('Massage')
+    const ids: number[] = []
+    for (let i = 0; i < 110; i++) ids.push(await insertStaff(`KTV${i}`, [skill]))
+    const variant = await insertVariant(skill, { duration: 60, buffer: 10 })
+    const { start: dayStart } = localDayBounds(DATE)
+    await seedBooking(ids[77]!, variant, dayStart + 3600, 60, 10)
+
+    const { body } = await getSchedule(DATE)
+    const withItems = body.staff.filter((s: any) => s.items.length > 0)
+    expect(withItems.length).toBe(1)
+    expect(withItems[0].id).toBe(ids[77])
   })
 })

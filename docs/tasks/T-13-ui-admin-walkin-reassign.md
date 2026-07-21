@@ -1,7 +1,7 @@
 ---
 id: T-13
 title: UI admin — khách vãng lai + hàng chờ xếp lại
-status: todo
+status: done
 model: sonnet
 effort: high
 depends_on: ["T-12", "T-08"]
@@ -12,7 +12,7 @@ touches:
 prd_refs: ["§7", "§8"]
 owner: null
 started_at: null
-finished_at: null
+finished_at: "2026-07-22"
 ---
 
 # T-13 · UI admin — khách vãng lai + hàng chờ xếp lại
@@ -186,5 +186,101 @@ kiểm chứng bằng `npm run e2e -- tests/e2e/admin-walkin-reassign.spec.ts`.
   có validate lưới 15 phút, đảm bảo sheet walk-in không vô tình áp lại rule đó.
 
 ## Đã làm gì
-(agent điền khi xong)
+
+**File tạo mới** (đúng `touches`):
+- `src/app/routes/admin/walkin/api.ts` — `getServices`, `getAvailableNow`, `createWalkIn`
+- `src/app/routes/admin/walkin/WalkInSheet.tsx` — FAB "+ Khách vãng lai" + Sheet
+  (component `WalkInFab`, nhúng được ở bất kỳ trang admin nào qua prop `onCreated`)
+- `src/app/routes/admin/walkin/walkin.css` — prefix `ccf-wi-`
+- `src/app/routes/admin/reassign/api.ts` — `getReassignQueue`, `getReassignCandidates`,
+  `reassignBooking`, `cancelBooking`
+- `src/app/routes/admin/reassign/ReassignQueuePage.tsx` — màn hàng chờ (route `/admin/reassign`),
+  nhúng `WalkInFab` trực tiếp trong màn này
+- `src/app/routes/admin/reassign/ReassignSheet.tsx` — sheet chuyển KTV
+- `src/app/routes/admin/reassign/reassign.css` — prefix `ccf-rq-`
+- `tests/e2e/admin-walkin-reassign.spec.ts` — 11 test, đúng danh sách card yêu cầu
+
+**Ngoài `touches` khai báo, nhưng bắt buộc để route mở được** (cùng tiền lệ
+T-10/T-11/T-12 đã ghi trong "Đã làm gì" của họ — mỗi task thêm đúng 1 import +
+1 `<Route>` vào `src/app/main.tsx`, không route/task nào khác claim quyền sửa
+2 dòng đó):
+```
+import ReassignQueuePage from './routes/admin/reassign/ReassignQueuePage'
+...
+<Route path="/admin/reassign" element={<ReassignQueuePage />} />
+```
+Không đụng `TimelinePage.tsx` (T-12, ngoài `touches`) — nút "Xử lý ngay" ở
+banner timeline vẫn là placeholder scrollTo do T-12 để lại; FAB khách vãng lai
+sống ở màn `/admin/reassign` thay vì nhúng vào timeline.
+
+**Phát hiện bug hạ tầng — đã sửa trong phạm vi `touches`, không đụng backend:**
+`GET /api/admin/available-now?variant_id=` (route T-08, `src/worker/routes/admin-walkin.ts`,
+ngoài `touches`) trả `{ staff: [{ id }] }` — **KHÔNG có `name`**, khác mô tả
+trong card (`{ id, name }`). Đã kiểm chứng bằng `curl` + browser thật (không
+suy đoán): thiếu `name` khiến component `<Avatar>` crash trắng trang khi nhận
+`name=undefined` (console: "An error occurred in the `<Avatar>` component").
+Vá trong `src/app/routes/admin/walkin/api.ts`: `getAvailableNow()` gọi thêm
+`GET /api/admin/staff` (T-06, có sẵn, trả đủ `{id,name,phone,active}`) và map
+`id → name`. Không sửa route T-08 (ngoài touches) — chỉ bù dữ liệu ở tầng SPA.
+
+**Phát hiện bug hạ tầng khác — KHÔNG sửa được, ngoài `touches`, cần task riêng:**
+`GET /api/admin/schedule` (`src/worker/routes/admin-schedule.ts`, thuộc T-16)
+bind `staffIds.length + 2` tham số vào một câu `IN (...)`. Cloudflare D1 giới
+hạn **100 bound parameters/statement** (khác 999 của SQLite gốc — xác nhận qua
+docs chính thức: https://developers.cloudflare.com/d1/platform/limits/). D1
+local dùng chung đã tích luỹ >100 dòng `staff` qua nhiều lần chạy test của
+T-10/T-11/T-12/T-13 (không tự dọn theo thời gian), khiến route này trả 500
+"D1_ERROR: too many SQL variables" bất kể ai gọi — chặn đứng cả `/admin/timeline`
+lẫn test 1 của card này. Đã dọn thủ công staff rác do CHÍNH T-13 tạo ra trong
+lúc debug (62 dòng `E2E WR%` — cascade DELETE qua `booking_items → time_off →
+work_shifts → staff_skills → staff`, không đụng dữ liệu của task khác) để đưa
+DB về mức an toàn (55 dòng) và kiểm chứng được. **Không sửa `admin-schedule.ts`**
+(ngoài touches, thuộc T-16) — cần một task riêng để phân trang/loại bỏ
+`IN (staffIds)` (ví dụ JOIN thay vì IN, hoặc where staff.active=1 kết hợp
+LEFT JOIN). Rủi ro sẽ tái diễn khi DB local tích luỹ đủ nhiều staff lần nữa.
+
+**Bug UX tự phát hiện khi tự mở trình duyệt kiểm chứng (đã sửa, trong phạm vi `touches`):**
+- `.ccf-wi-fab` (walkin.css) thiếu `font-family: inherit` → browser mặc định
+  render nút bằng Arial thay vì sans-serif hệ thống (cùng loại lỗi T-09 từng
+  gặp). Đã thêm `font-family: inherit`.
+- `.ccf-rq-candidate .ccf-rq-why` (lý do loại ứng viên trong sheet chuyển KTV)
+  để `font-size: 13px` — dưới ngưỡng đọc thoải mái, cùng bài học Notice 14.5px
+  của T-11. Nâng lên `14.5px` — đây là thông tin quyết định-quan-trọng cho lễ
+  tân (card nhấn mạnh phải "nêu rõ lý do"), không phải chi tiết phụ.
+- Thẻ gọi khách `tel:` trong Notice "không ai đủ điều kiện" ban đầu dùng
+  `color: inherit` trên nền trắng + cao 21px — đo contrast thực tế chỉ
+  **3.02:1** (dưới AA 4.5:1) và vùng chạm dưới 48px. Thử 2 phương án nền đặc
+  (`--warn-ink` đo 4.55:1, `--danger` đo 4.19:1) đều không đủ buffer an toàn.
+  Chốt dùng ĐÚNG công thức đã kiểm chứng của `.ccf-btn--danger` (T-09: nền
+  trắng + chữ `--danger` + viền `#eec5c1`) — đo lại đạt **5.32:1**, cao 48px.
+
+**Kiểm chứng thị giác đã làm** (theo yêu cầu card, không chỉ tin test xanh):
+mở Chrome thật qua browser tool, đo `getComputedStyle` trực tiếp cho:
+FAB (màu/nền/font/kích thước), Notice "không ai rảnh" trong sheet walk-in,
+từng dòng lý do trong sheet chuyển KTV, Notice "không ai đủ điều kiện" +
+thẻ `tel:`. Tính contrast WCAG cho mọi cặp màu chữ/nền dùng trong file mới —
+không suy đoán bằng mắt.
+
+**Kết quả:**
+- `npm run typecheck` — xanh
+- `npm run e2e -- tests/e2e/admin-walkin-reassign.spec.ts` — **11/11 xanh**,
+  chạy lại nhiều lần liên tiếp đều ổn định
+- `npm run e2e -- tests/e2e/admin-timeline.spec.ts` (T-12) — vẫn 9/9 xanh sau
+  thay đổi, không hồi quy
+- `npm test` (Vitest API) — 239/244 xanh; 5 fail trong
+  `tests/api/appointment-items.test.ts` xác nhận là **lỗi tiền tồn tại**, hoàn
+  toàn không liên quan T-13 (đã xác nhận bằng `git stash` — cùng 5 test fail
+  y hệt trên baseline gốc trước khi T-13 chạm bất kỳ file nào; T-13 không đụng
+  file backend nào ngoài việc gọi API có sẵn)
+- `tests/e2e/smoke.spec.ts` fail (`h1` mong đợi "Đặt lịch spa", thực tế
+  "Sen Spa") — cũng tiền tồn tại, do `GuestPage.tsx` đã đổi ở T-10/T-11, không
+  liên quan T-13
+
+**Lưu ý vận hành:** chạy full `npm run e2e` (không chỉ định file) có thể thấy
+`admin-timeline.spec.ts` và `admin-walkin-reassign.spec.ts` va chạm nhau do
+`playwright.config.ts` có `fullyParallel: true` — cả hai cùng thao túng
+`reassign-queue` TOÀN CỤC đồng thời trên các worker khác nhau. Chạy riêng
+từng file (như CI thường làm) hoặc `--workers=1` cho cả hai thì luôn xanh —
+đã xác nhận bằng nhiều lần chạy. Đây là hạn chế cấu trúc đã được T-12 cảnh báo
+trước, không phải lỗi mới.
 </content>

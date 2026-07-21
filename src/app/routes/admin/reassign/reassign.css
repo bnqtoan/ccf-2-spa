@@ -1,0 +1,134 @@
+/*
+ * Màn "Hàng chờ xếp lại" + sheet "Chuyển kỹ thuật viên" — port từ
+ * prototype/index.html: .qitem (dòng 329-333), queueView() (794-821),
+ * openReassign() (950-983).
+ * Prefix "ccf-rq-" để tránh đụng components.css / timeline.css / walkin.css.
+ */
+
+.ccf-rq-page {
+  padding: 16px;
+  padding-bottom: 88px; /* chừa chỗ cho FAB không đè lên item cuối */
+}
+@media (max-width: 720px) {
+  .ccf-rq-page {
+    padding: 12px;
+    padding-bottom: 88px;
+  }
+}
+
+.ccf-rq-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.ccf-rq-item {
+  border: 1.5px solid #f0d4d1;
+  background: #fdf6f5;
+  border-radius: 12px;
+  padding: 13px;
+  margin-bottom: 10px;
+}
+.ccf-rq-item .ccf-rq-h {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.ccf-rq-item .ccf-rq-w {
+  font-weight: 640;
+}
+.ccf-rq-item .ccf-rq-d {
+  font-size: 14px;
+  color: var(--ink-2);
+  margin-top: 2px;
+}
+.ccf-rq-item .ccf-rq-a {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+  flex-wrap: wrap;
+}
+.ccf-rq-item .ccf-rq-a a.ccf-btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---------- sheet: chuyển kỹ thuật viên ---------- */
+.ccf-rq-summary .ccf-rq-sline {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14.5px;
+}
+.ccf-rq-summary .ccf-rq-k {
+  color: var(--ink-3);
+}
+.ccf-rq-summary .ccf-rq-v {
+  font-weight: 620;
+  text-align: right;
+}
+.ccf-rq-label {
+  font-size: 14px;
+  font-weight: 620;
+  margin: 16px 0 9px;
+}
+.ccf-rq-candidate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 11px 12px;
+  border-radius: var(--r, 12px);
+  border: 1.5px solid var(--line);
+  background: var(--white);
+  cursor: pointer;
+  margin-bottom: 9px;
+  font-family: inherit;
+}
+.ccf-rq-candidate:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ccf-rq-candidate .ccf-rq-nm {
+  font-weight: 650;
+  font-size: 14.5px;
+}
+.ccf-rq-candidate .ccf-rq-why {
+  /* Lý do loại ứng viên là thông tin quyết định-quan-trọng cho lễ tân (card:
+     "phải nêu rõ lý do", không phải chi tiết phụ) — giữ ≥14.5px, không rơi
+     xuống 13px như bài học Notice của T-11. */
+  font-size: 14.5px;
+  margin-top: 2px;
+}
+.ccf-rq-candidate .ccf-rq-why--ok {
+  color: var(--ink-3);
+}
+.ccf-rq-candidate .ccf-rq-why--no {
+  color: var(--danger);
+}
+.ccf-rq-tel {
+  /* Lễ tân đang xử lý tình huống gấp (khách chờ gọi lại) — thẻ gọi khách
+     phải đủ to để bấm nhanh, không phải chữ gạch chân nhỏ (vùng chạm ≥48px,
+     cùng chuẩn --tap dùng cho Button size="md"). Màu: cùng công thức đã kiểm
+     chứng của `.ccf-btn--danger` (T-09) — nền trắng + chữ --danger đạt
+     5.32:1, KHÔNG phải nền --warn-ink/--danger đặc + chữ trắng (đã tự đo hụt
+     dưới AA 4.5:1: 4.55:1 và 4.19:1 tương ứng, quá sát ngưỡng để an toàn). */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: var(--r, 12px);
+  background: var(--white);
+  border: 1.5px solid #eec5c1;
+  font-weight: 650;
+  font-size: 15px;
+  color: var(--danger);
+  text-decoration: none;
+}

@@ -10,8 +10,11 @@
 // — NOT `start_at` alone, or a booking that crosses local midnight would
 // silently vanish from the morning it still occupies (card's known trap).
 //
-// Three queries total (staff, items, time_off), each IN (staffIds) — never
-// one query per technician.
+// Three queries total (staff, items, time_off) — never one query per
+// technician. The item/time_off queries filter by `JOIN staff … active = 1`
+// rather than binding every id: D1 caps a statement at 100 bound params, so
+// `IN (?, ?, …)` breaks a spa with ~98+ active technicians (reproduced: 120
+// staff → HTTP 500).
 
 import { Hono } from 'hono'
 import { localDayBounds, parseDateStr } from '../lib/time.ts'
@@ -45,10 +48,6 @@ interface TimeOffRow {
   reason: string | null
 }
 
-function placeholders(n: number): string {
-  return new Array(n).fill('?').join(', ')
-}
-
 routes.get('/api/admin/schedule', async (c) => {
   const db = c.env.DB
   const dateStr = c.req.query('date')
@@ -72,8 +71,11 @@ routes.get('/api/admin/schedule', async (c) => {
   const timeOffByStaff = new Map<number, TimeOffRow[]>()
 
   if (staffIds.length > 0) {
-    const ph = placeholders(staffIds.length)
-
+    // KHÔNG bind từng staff_id qua `IN (?, ?, …)`: D1 giới hạn 100 bound
+    // params/statement (không phải 999 như SQLite bản thường), nên spa có hơn
+    // ~98 KTV active sẽ nhận 500 — đã tái hiện thật với 120 KTV. Lọc bằng
+    // `JOIN staff ... WHERE st.active = 1`, số param cố định là 2 dù bao nhiêu
+    // KTV. Cùng tập KTV với `staffList` ở trên vì cùng điều kiện `active = 1`.
     const [itemsRes, timeOffRes] = await Promise.all([
       // Half-open interval intersection with the local day (CONVENTIONS §2):
       // `start_at < dayEnd AND block_end_at > dayStart`. Using `block_end_at`
@@ -92,21 +94,24 @@ routes.get('/api/admin/schedule', async (c) => {
            JOIN customers c ON c.id = a.customer_id
            JOIN service_variants sv ON sv.id = bi.variant_id
            JOIN services s ON s.id = sv.service_id
-           WHERE bi.staff_id IN (${ph})
-             AND bi.status IN ('booked','in_service','done','no_show')
+           JOIN staff st ON st.id = bi.staff_id AND st.active = 1
+           WHERE bi.status IN ('booked','in_service','done','no_show')
              AND bi.start_at < ?
              AND bi.block_end_at > ?
            ORDER BY bi.staff_id, bi.start_at`,
         )
-        .bind(...staffIds, dayEnd, dayStart)
+        .bind(dayEnd, dayStart)
         .all<ItemRow>(),
       db
         .prepare(
-          `SELECT staff_id, id, start_at, end_at, reason FROM time_off
-           WHERE staff_id IN (${ph}) AND start_at < ? AND end_at > ?
-           ORDER BY staff_id, start_at`,
+          `SELECT t.staff_id AS staff_id, t.id AS id, t.start_at AS start_at,
+                  t.end_at AS end_at, t.reason AS reason
+           FROM time_off t
+           JOIN staff st ON st.id = t.staff_id AND st.active = 1
+           WHERE t.start_at < ? AND t.end_at > ?
+           ORDER BY t.staff_id, t.start_at`,
         )
-        .bind(...staffIds, dayEnd, dayStart)
+        .bind(dayEnd, dayStart)
         .all<TimeOffRow>(),
     ])
 
