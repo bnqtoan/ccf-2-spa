@@ -1,7 +1,7 @@
 ---
 id: T-12
 title: UI admin — lịch ngày dạng timeline theo cột KTV
-status: todo
+status: done
 model: sonnet
 effort: high
 depends_on: ["T-09", "T-07"]
@@ -10,8 +10,8 @@ touches:
   - tests/e2e/admin-timeline.spec.ts
 prd_refs: ["§10", "§8"]
 owner: null
-started_at: null
-finished_at: null
+started_at: "2026-07-22"
+finished_at: "2026-07-22"
 ---
 
 # T-12 · UI admin — lịch ngày dạng timeline
@@ -174,41 +174,93 @@ kiểm chứng bằng `npm run e2e -- tests/e2e/admin-timeline.spec.ts`.
 
 ## Đã làm gì
 
-**BLOCKED trước khi viết code UI.** Lý do:
+**Block cũ đã hết** — `GET /api/admin/schedule?date=` giờ đã tồn tại thật
+(T-16, mounted ở `src/worker/routes/admin-schedule.ts`, đúng response shape
+đã kiểm chứng bằng test thật: `{ date, staff: [{ id, name, items[], time_off[] }] }`).
+Đã đọc lại code endpoint này trước khi viết UI để bám đúng field thật (không
+đoán). `GET /api/admin/reassign-queue` cũng đã có (T-07,
+`src/worker/routes/admin-timeoff.ts`), trả `{ items: [{ item_id, ... }] }` —
+dùng `item_id` (không phải `id`) làm khoá xác định mồ côi.
 
-Card ghi (dòng 91-94) "T-07 để lại endpoint `GET /api/admin/schedule?date=`",
-nhưng đã kiểm tra kỹ:
-- `docs/tasks/T-07-timeoff-reassign.md` (status: done) — phần "Phạm vi"/"Việc
-  phải làm"/`touches` chỉ liệt kê 5 endpoint: `POST /api/admin/time-off`,
-  `DELETE /api/admin/time-off/:id`, `GET /api/admin/reassign-queue`,
-  `GET /api/admin/bookings/:id/reassign-candidates`,
-  `POST /api/admin/bookings/:id/reassign`. Không có `GET /api/admin/schedule`.
-- `src/worker/routes/index.ts` chỉ mount 8 route module hiện có, không route
-  nào khớp `/api/admin/schedule`.
-- `grep -rn "admin/schedule" .` toàn repo chỉ khớp trong `docs/PRD.md` §9
-  (định nghĩa hợp đồng API) và trong chính các task card (T-12, T-14) — không
-  có implementation nào.
+**Đã hoàn thành toàn bộ phạm vi của card.** Các file tạo mới (đúng `touches`):
+- `src/app/routes/admin/timeline/TimelinePage.tsx` — component chính
+- `src/app/routes/admin/timeline/api.ts` — `getSchedule`, `getReassignQueue`,
+  `setBookingStatus`, theo mẫu `src/app/api/client.ts` (T-10) / `routes/lookup/api.ts` (T-11)
+- `src/app/routes/admin/timeline/format.ts` — quy đổi giờ địa phương SPA_TZ
+- `src/app/routes/admin/timeline/timeline.css` — port từ `.tl*/.ev*/.legend/.banner` của prototype
+- `tests/e2e/admin-timeline.spec.ts` — 9/9 test đúng tên card yêu cầu
 
-Kết luận: `GET /api/admin/schedule?date=` — endpoint mà toàn bộ bước 1 của
-"Việc phải làm" và "Định nghĩa xong" của card này dựa vào — **chưa từng được
-implement** ở bất kỳ task nào đã đóng. Đây là khoảng trống thật giữa T-07 và
-T-12, không phải hiểu nhầm tài liệu.
+**Một dòng ngoài `touches`, có tiền lệ:** `src/app/main.tsx` — thêm
+`import TimelinePage` + `<Route path="/admin/timeline">`. Không nằm trong
+`touches` của T-12, nhưng bắt buộc để trang mở được ở URL riêng, và T-11 đã
+làm y hệt (nối `LookupPage` vào `main.tsx` dù ngoài touches của T-11) —
+không route/task nào khác claim quyền sửa dòng Route này.
 
-Không tự sửa vì: file cần tạo (route mới) và file cần sửa (`index.ts`) đều
-nằm ngoài `touches` của T-12; `index.ts` theo CONVENTIONS §7 "chỉ được sửa
-trong T-01" (đã đóng); có 2 agent khác (T-10, T-11) đang chạy song song nên
-càng không tự ý phá quy ước phối hợp. Đây là thiếu API tầng backend, vượt
-phạm vi "UI admin timeline" mà card giao cho T-12.
+**Seed dữ liệu tất định cho e2e** (theo đúng yêu cầu "không phụ thuộc giờ chạy"):
+- Ngày mục tiêu = Thứ Hai gần nhất SAU HÔM NAY (`nextMondayDateStr()`), luôn
+  rơi vào ca làm việc Mon-Sat 09:00-19:00 của seed chuẩn, luôn ở tương lai.
+- Mỗi test tự `INSERT` thẳng vào D1 local qua `wrangler d1 execute --local
+  --file=` (CÙNG cơ chế `tests/e2e/customer-lookup.spec.ts` đã dùng, đọc lại
+  trước khi viết) — không bao giờ `DELETE`, để không phá dữ liệu của agent
+  khác chạy song song. Giờ neo theo giờ địa phương cố định trên ngày mục tiêu
+  (ví dụ 10:00, 15:00), không neo theo `Date.now()`.
+- Item mồ côi dựng bằng cách seed một `booking_item` thật rồi seed
+  `time_off` phủ đúng khung giờ đó cho cùng KTV — KHÔNG tự suy luận "mồ côi"
+  ở test hay ở UI, luôn đọc qua `GET /api/admin/reassign-queue` thật.
+- Test "banner biến mất khi hàng chờ rỗng" tự dọn (huỷ, không xoá dòng) mọi
+  orphan còn sót từ lần chạy trước có tên khách khớp tiền tố `E2E TL %` của
+  chính file này trước khi seed lại — nếu không, hàng chờ toàn cục sẽ không
+  bao giờ về 0 do các test khác trong cùng file cũng tạo orphan trên DB dùng
+  chung.
 
-Chưa viết code UI/test nào — vì "Định nghĩa xong" đòi hỏi seed time-off qua
-API thật rồi xem kết quả render trên timeline, không thể làm thiếu endpoint
-nguồn dữ liệu chính.
+**Ba cạm bẫy prototype — đã port đúng, có test riêng cho từng cái:**
+1. Z-index: khối nghỉ `z-index:0`, booking thường `z-index:2`, booking mồ côi
+   `z-index:3` (cao nhất) — test `item mồ côi nổi lên trên khối nghỉ...` xác
+   nhận cả `getComputedStyle().zIndex` lẫn `elementFromPoint()` tại toạ độ
+   thật (hit-test) đều trả về đúng block mồ côi, không phải khối nghỉ.
+2. Block ngắn: ngưỡng tính theo **chiều cao pixel thực tế** sau khi trừ buffer
+   (`height < SHORT_BLOCK_THRESHOLD_PX = 44`), không hard-code theo phút dịch
+   vụ — dùng class `.ccf-tl-ev--short` ẩn dòng tên dịch vụ qua CSS
+   `display:none`, giữ nguyên trong DOM (test kiểm bằng `toBeHidden()`).
+3. Buffer: dải `<div class="ccf-tl-ev-buf">` tuyệt đối định vị ở đáy block,
+   chiều cao = `(block_end_at - end_at)/60 * ROW_HEIGHT_PX`, `pointer-events:none`
+   để không chặn click vào block.
 
-Đề xuất hướng đi (cần quyết định, không tự chọn thay):
-1. Bổ sung `GET /api/admin/schedule?date=` vào backend trước (task riêng hoặc
-   nối vào T-07), rồi mở lại T-12.
-2. Hoặc mở rộng `touches` của T-12 thêm đúng 2 file
-   (`src/worker/routes/admin-schedule.ts` mới + 1 dòng vào `index.ts`) để tự
-   implement — endpoint này không có logic nghiệp vụ mới, chỉ SELECT
-   `booking_items` JOIN `staff/customers/services/variants` theo ngày.
+**Tự mở trình duyệt kiểm chứng thật (không chỉ tin test xanh)** — bài học
+T-09 (8/8 test xanh nhưng chữ nút đen trên nền xanh đậm) áp dụng nghiêm ở đây
+vì timeline có rủi ro thị giác cao hơn. Seed một bộ dữ liệu minh hoạ đủ 4
+trạng thái (booked/in_service/walk_in/orphan) + time-off + block ngắn qua
+`wrangler d1 execute --local`, mở `/admin/timeline` bằng Chrome thật:
+- Orphan (đỏ) render rõ ràng TRÊN khối nghỉ sọc xám, không bị che — xác nhận
+  bằng mắt lẫn bằng `elementFromPoint` tại tâm block.
+- Block ngắn (30 phút, "VisualShort Nguyen") chỉ hiện tên khách, không tràn chữ.
+- Dải buffer 15 phút đo được đúng ~13px (15/60 × 52px row height), màu mờ
+  `rgba(20,52,42,.09)` ở đáy block, tách biệt phần chính.
+- 4 màu trạng thái phân biệt rõ: booked xanh lá nhạt, in_service xanh dương,
+  walk_in vàng cam, orphan đỏ — đối chiếu đúng bảng màu prototype.
+- Bấm block mở Sheet đúng chi tiết (dịch vụ, giờ, buffer, KTV, trạng thái) +
+  3 nút hành động, bấm "Bắt đầu làm" cập nhật `data-status` ngay trên timeline
+  không cần tải lại trang, ĐỒNG THỜI vẫn giữ màu đỏ mồ côi (đúng nghiệp vụ:
+  đổi trạng thái không tự resolve khỏi reassign-queue, chỉ huỷ/reassign mới
+  resolve — PRD §8).
+- Tương phản màu chữ đo bằng WCAG formula (giống `components.spec.ts`):
+  booked 11.4:1, banner title 6.1:1, orphan 8.78:1 — đều vượt xa AA 4.5:1.
+- Mobile 375px: banner/datenav/block không tràn ngang trang (chỉ bảng
+  timeline tự cuộn ngang theo đúng thiết kế), nút lùi/tiến ngày 44px (đúng
+  ngoại lệ `size="sm"` của T-09), block đủ lớn để bấm.
+
+**Sự cố hạ tầng gặp phải khi kiểm chứng (không phải lỗi của T-12):** dev
+server dùng chung với T-10/T-11 có lúc crash/restart, và trong lúc T-10 còn
+`blocked` (đã tự phát hiện + ghi trong card của họ) do `src/app/api/client.ts`
+va chạm `run_worker_first: ["/api/*"]` ở `wrangler.jsonc`, toàn bộ SPA (kể cả
+`/admin/timeline`) tạm thời trắng trang vì `main.tsx` import mọi route trong
+một bundle. Không tự sửa (`wrangler.jsonc` ngoài `touches`, T-01 mới được
+sửa) — đợi ổn định rồi kiểm chứng lại, đã xanh khi T-10 tự resolve.
+
+**Kết quả:**
+- `npm run typecheck` — xanh
+- `npm run e2e -- tests/e2e/admin-timeline.spec.ts` — **9/9 xanh**, chạy lại
+  3 lần liên tiếp đều ổn định (không phụ thuộc thứ tự global orphan trong DB
+  dùng chung nhờ bước tự dọn ở test 6)
+- Đã tự mở Chrome thật kiểm chứng thị giác (không chỉ tin test xanh)
 </content>

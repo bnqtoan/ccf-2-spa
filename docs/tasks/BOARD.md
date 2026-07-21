@@ -28,7 +28,7 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-09 | Design tokens + component base | done | sonnet | T-01 |
 | T-10 | UI khách: đặt lịch | done | sonnet | T-09, T-04 |
 | T-11 | UI khách: tra cứu + huỷ | done | sonnet | T-09, T-05 |
-| T-12 | UI admin: day timeline | todo | sonnet | T-09, T-07 |
+| T-12 | UI admin: day timeline | done | sonnet | T-09, T-07 |
 | T-13 | UI admin: walk-in + reassign queue | todo | sonnet | T-12, T-08 |
 | T-14 | E2E Playwright: 4 luồng đầu-cuối | todo | codex | T-10..T-13 |
 | T-15 | Deploy + smoke test production | todo | sonnet | T-14 |
