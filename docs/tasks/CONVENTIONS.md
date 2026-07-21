@@ -119,6 +119,8 @@ export function registerRoutes(app: Hono) {
 
 - `tests/api/` dùng `@cloudflare/vitest-pool-workers` — D1 thật trong workerd,
   không mock.
+- `tests/unit/` dành cho logic thuần (không DB). Đã có trong `include` của
+  `vitest.config.ts` từ T-03 — không cần sửa config nữa.
 - **API đúng (T-01 đã dựng, đã kiểm chứng):** `vitest.config.ts` dùng plugin
   `cloudflareTest()`, **không phải** `defineWorkersConfig` — bản >= 0.13 đi kèm
   Vitest 4 đã xoá hẳn hàm đó. Trong test, gọi Worker bằng

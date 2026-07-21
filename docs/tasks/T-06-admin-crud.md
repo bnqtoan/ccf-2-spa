@@ -1,7 +1,7 @@
 ---
 id: T-06
 title: CRUD admin cho skills/staff/services/variants/shifts
-status: todo
+status: done
 model: codex
 effort: medium
 depends_on: ["T-02"]
@@ -175,4 +175,13 @@ endpoint CRUD vừa viết, không cần chèn dữ liệu tay vào DB.
   mọi kết quả availability mà không ai báo.
 
 ## Đã làm gì
-(agent điền khi xong)
+- Thêm CRUD API cho skills, staff + gán skill, services, variants và shifts;
+  staff/services/variants được vô hiệu hoá qua `active`, không xoá cứng.
+- Xoá skill đã được service dùng được chặn trước khi chạm FK, trả 409 với lỗi
+  `VALIDATION` và thông điệp rõ ràng (PRD không có mã conflict riêng).
+- Thêm test D1 thật, tự nạp `0001_init.sql` bằng cách tách comment từng dòng.
+- `npm run typecheck` xanh. Vitest bị sandbox của Codex chặn (`listen EPERM
+  127.0.0.1`) nên agent không tự chạy được; **orchestrator đã chạy hộ ngoài
+  sandbox: 17/17 test riêng xanh, 82/82 toàn suite xanh**, cộng verify độc lập
+  hai luật nghiệp vụ (xoá skill đang dùng bị chặn kèm mã lỗi có cấu trúc, không
+  rò lỗi SQL thô; vô hiệu hoá staff chỉ đặt `active=0` chứ không xoá dòng).

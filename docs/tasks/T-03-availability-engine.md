@@ -1,7 +1,7 @@
 ---
 id: T-03
 title: Availability engine (hàm thuần) + GET /api/availability
-status: todo
+status: done
 model: opus
 effort: high
 depends_on: ["T-02"]
@@ -15,8 +15,8 @@ touches:
   - tests/unit/intervals.test.ts
 prd_refs: ["§3.1", "§4", "§11"]
 owner: null
-started_at: null
-finished_at: null
+started_at: 2026-07-21
+finished_at: 2026-07-21
 ---
 
 # T-03 · Availability engine + GET /api/availability
@@ -169,4 +169,57 @@ chồng bất kỳ `[start_at, block_end_at)` nào đang `booked`/`in_service`.
   +07:00 nên tình cờ trùng, nhưng đừng dựa vào sự tình cờ đó).
 
 ## Đã làm gì
-(agent điền khi xong)
+
+**Chữ ký để T-04/T-07 gọi lại** (`src/worker/lib/availability.ts`, hàm thuần,
+không import D1):
+
+```ts
+computeAvailability(input: AvailabilityInput): AvailabilitySlot[]
+
+interface AvailabilityInput {
+  variant:   Pick<ServiceVariant, 'duration_min' | 'buffer_after_min'>
+  staff:     Pick<Staff, 'id' | 'active'>[]      // đã lọc theo skill_id
+  shifts:    Pick<WorkShift, 'staff_id' | 'start_min' | 'end_min'>[]  // đúng weekday
+  timeOff:   { staff_id, start_at, end_at }[]
+  busyItems: { staff_id, start_at, block_end_at }[]  // CHỈ 'booked' | 'in_service'
+  dayStart: number; dayEnd: number; now: number      // epoch giây
+}
+interface AvailabilitySlot { start_at: number; staff_ids: number[] }
+```
+
+`BusyItem` **cố tình không có trường `end_at`** — dùng nhầm cột thành lỗi
+không biểu diễn được, thay vì chỉ bị nhắc nhở bằng comment. Kèm theo
+`pickStaff(staffIds, busyItems)` cài đúng quy tắc auto-assign PRD §4 (ít phút
+đã đặt nhất trong ngày, hoà thì `staff_id` nhỏ hơn) để T-04 không phải cài lại
+lần hai rồi trôi lệch.
+
+Ngoài ra: `intervals.ts` (`overlaps`/`subtract`/`mergeOverlapping`, nửa mở
+thuần), `time.ts` (quy đổi qua `SPA_TZ` bằng `Intl.DateTimeFormat`),
+`routes/availability.ts` (5 câu query cố định, không N+1 — 1 câu variant, 1 câu
+ứng viên, 3 câu batch theo `IN (...)` bám đúng index T-02 đã tạo).
+
+**Phát hiện đáng lưu ý:**
+- `getUTCDay()` trên `dayStart` **sai thật**, không phải rủi ro lý thuyết: đã
+  dựng mutant thử, `dayStart` của 2026-08-03 giờ VN là 17:00 UTC 2026-08-02 →
+  ra Chủ nhật thay vì thứ Hai, làm đỏ 10 test. Weekday phải lấy từ chuỗi ngày
+  (`weekdayOf`), không lấy từ epoch.
+- Lưới 15 phút kiểm theo giờ địa phương, không dùng `epoch % 900`. VN (+07:00)
+  tình cờ trùng nên bug này sẽ **không** lộ ra ở đây — cố tình không dựa vào sự
+  trùng hợp đó.
+- Đã kiểm chứng bộ test bắt được lỗi im lặng bằng 4 mutant: (1) `end_at` thay
+  `block_end_at` → đỏ 4 test, (2) `overlaps` thành đóng `<=` → đỏ 1 test unit,
+  (3) weekday theo UTC → đỏ 10 test, (4) bỏ lọc quá khứ → đỏ 1 test. Không có
+  mutant nào lọt lưới.
+- Lưu ý cho T-04: `overlaps` đóng/mở chỉ bị bắt ở tầng unit — tầng API không
+  lộ, vì bước khớp block dùng so sánh trực tiếp chứ không qua `overlaps`. Đừng
+  xoá `tests/unit/intervals.test.ts` vì tưởng nó trùng với test API.
+- Booking vắt qua nửa đêm (block kéo sang ngày hôm sau) vẫn chiếm chỗ đúng ở
+  đầu ngày kế — vị từ lọc theo ngày là `start_at < dayEnd AND block_end_at >
+  dayStart`, không phải lọc theo `start_at` trong ngày.
+
+**Lệch nhẹ so với `touches` (cần người review biết):** `vitest.config.ts` có
+`include: ['tests/api/**/*.test.ts']` nên `tests/unit/` **không hề được thu
+thập** — file test card yêu cầu sẽ nằm im không chạy. Đã thêm đúng một glob
+`'tests/unit/**/*.test.ts'`. Đây là file ngoài `touches`; sửa vì để nguyên thì
+checklist "`npm test -- tests/unit/intervals.test.ts` xanh" không thể đạt được.
+Các card sau viết test thuần sẽ dùng chung glob này.

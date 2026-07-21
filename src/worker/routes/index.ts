@@ -1,4 +1,6 @@
 import type { Hono } from 'hono'
+import adminCrud from './admin-crud'
+import availability from './availability.ts'
 
 /**
  * Điểm gom route duy nhất (CONVENTIONS §7).
@@ -8,5 +10,7 @@ import type { Hono } from 'hono'
  */
 export function registerRoutes(app: Hono) {
   app.get('/api/health', (c) => c.json({ ok: true }))
+  app.route('/', adminCrud)
+  app.route('/', availability) // T-03
   // các task sau thêm dòng của mình vào đây
 }
