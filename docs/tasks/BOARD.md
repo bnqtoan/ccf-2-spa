@@ -17,7 +17,7 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 
 | Mã | Tiêu đề | Status | Model | Depends |
 |---|---|---|---|---|
-| T-01 | Scaffold Worker + Hono + D1 + Vite SPA + test | todo | sonnet | — |
+| T-01 | Scaffold Worker + Hono + D1 + Vite SPA + test | done | sonnet | — |
 | T-02 | Schema D1 + migrations + seed | todo | sonnet | T-01 |
 | T-03 | **Availability engine** + `GET /api/availability` | todo | **opus** | T-02 |
 | T-04 | **Booking write path** + re-check + 409 SLOT_TAKEN | todo | **opus** | T-03 |

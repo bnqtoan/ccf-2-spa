@@ -96,10 +96,35 @@ Mỗi task sau thêm **một dòng** vào hàm này. Nhiều agent chạy song s
 một dòng ở cuối hàm thì git merge được; cùng sửa `index.ts` theo nhiều cách khác
 nhau thì không. Đây là lý do file này tồn tại — đừng gộp lại cho gọn.
 
+**Route cần `c.env.DB`** khai báo generic ở chính module route của mình rồi mount
+qua `app.route()`. Đã kiểm chứng typecheck sạch dù `registerRoutes` nhận `Hono`
+trần:
+
+```ts
+// src/worker/routes/bookings.ts
+import { Hono } from 'hono'
+type Bindings = { DB: D1Database }
+const routes = new Hono<{ Bindings: Bindings }>()
+routes.post('/api/bookings', async (c) => { await c.env.DB.prepare(...) })
+export default routes
+
+// src/worker/routes/index.ts — thêm đúng 2 dòng
+import bookings from './bookings'
+export function registerRoutes(app: Hono) {
+  app.route('/', bookings)      // ← dòng của bạn
+}
+```
+
 ## 8. Test
 
 - `tests/api/` dùng `@cloudflare/vitest-pool-workers` — D1 thật trong workerd,
   không mock.
+- **API đúng (T-01 đã dựng, đã kiểm chứng):** `vitest.config.ts` dùng plugin
+  `cloudflareTest()`, **không phải** `defineWorkersConfig` — bản >= 0.13 đi kèm
+  Vitest 4 đã xoá hẳn hàm đó. Trong test, gọi Worker bằng
+  `exports.default.fetch()` từ `cloudflare:workers`, và lấy binding bằng
+  `env` từ cùng module (`env.DB`). Không dùng `SELF.fetch()` (deprecated).
+  Đừng "sửa lại cho đúng tài liệu cũ" — cấu hình hiện tại chạy được thật.
 - Mỗi test tự seed dữ liệu nó cần, không phụ thuộc thứ tự chạy.
 - Test khẳng định **hành vi nghiệp vụ**, không khẳng định dòng code.
   Tên test viết như câu tiếng Việt mô tả tình huống.

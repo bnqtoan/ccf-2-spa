@@ -1,7 +1,7 @@
 ---
 id: T-01
 title: Scaffold Worker + Hono + D1 + Vite SPA + Vitest/Playwright
-status: todo
+status: done
 model: sonnet
 effort: medium
 depends_on: []
@@ -20,7 +20,7 @@ touches:
 prd_refs: ["§2", "§10"]
 owner: null
 started_at: null
-finished_at: null
+finished_at: "2026-07-21"
 ---
 
 # T-01 · Scaffold Worker + Hono + D1 + Vite SPA + Vitest/Playwright
@@ -127,4 +127,48 @@ Chạy `npm test && npm run e2e` từ thư mục sạch (sau `npm ci`) đều xa
   nuốt request API.
 
 ## Đã làm gì
-(agent điền khi xong)
+Cài: hono 4.12.31, react/react-dom 19.2.8, react-router-dom 7.18.1,
+wrangler 4.112.0, vite 8.1.5, @cloudflare/vite-plugin 1.45.1,
+@vitejs/plugin-react 6.0.3, vitest 4.1.10, @cloudflare/vitest-pool-workers
+0.18.6, @playwright/test 1.61.1, typescript 7.0.2 (native/Go compiler, hiện là
+bản `latest` trên npm). Tạo D1 database thật `ccf-spa`
+(id `88268cdc-c542-4edc-8156-295cacbdfe1f`) qua `wrangler d1 create`.
+
+**Lệch quan trọng so với card**: `@cloudflare/vitest-pool-workers` >= 0.13 (đi
+kèm Vitest 4, là bản hiện tại trên npm) đã **xoá hẳn** `defineWorkersConfig` /
+`defineWorkersProject` khỏi `/config` — thay bằng Vite plugin `cloudflareTest()`
+export ở root package. Bản 0.12.x cuối cùng còn `defineWorkersConfig` chỉ chạy
+với Vitest 2–3, một nhánh cũ không còn phát triển. Đã dùng `cloudflareTest()`
+thay thế — vẫn giữ đúng tinh thần card: test chạy thật trong workerd, D1 binding
+thật từ `wrangler.jsonc`, không mock. Test file dùng `exports.default.fetch()`
+từ `cloudflare:workers` thay vì `SELF.fetch()` từ `cloudflare:test` (API cũ
+vẫn còn nhưng deprecated). T-02+ nên dùng cùng pattern này, không quay lại
+`defineWorkersConfig`.
+
+**Gotcha khác đã gặp và xử lý**:
+- `@cloudflare/vite-plugin` tự tìm `wrangler.jsonc` theo Vite `root`, không
+  phải project root. Vì SPA đặt ở `root: 'src/app'` nên phải truyền
+  `configPath: '../../wrangler.jsonc'` tường minh cho `cloudflare()`, nếu không
+  nó âm thầm build assets-only, không có Worker/D1 — build vẫn "thành công"
+  nhưng sai, dễ bị bỏ sót nếu không kiểm output.
+- Cùng lý do trên, state dev (D1 sqlite...) bị ghi vào `src/app/.wrangler/`
+  thay vì `.wrangler/` ở root — set `persistState: { path: '../../.wrangler/state' }`
+  để đưa về đúng chỗ `.gitignore` che.
+- `.gitignore` cũ chỉ có pattern `.wrangler/` (khớp thư mục top-level), không
+  che được `src/app/.wrangler/` phát sinh do Miniflare tmp dir. Đã thêm dòng
+  `**/.wrangler/` — sửa ngoài `touches` vì đây là bug của gitignore hiện có,
+  không phải mở rộng phạm vi.
+- `worker-configuration.d.ts` (sinh bởi `wrangler types`) bắt buộc phải commit
+  — thiếu nó thì `tsc` không thấy `D1Database`, `Env`, hay ambient module
+  `cloudflare:workers`/`cloudflare:test`. Không nằm trong `touches` nhưng là
+  artifact bắt buộc để `npm run typecheck` chạy được sau `npm ci`, tương tự
+  `package-lock.json`.
+- `registerRoutes(app: Hono)` dùng type `Hono` trần theo đúng snippet trong
+  card — nên `src/worker/index.ts` cũng phải `new Hono()` trần (không generic
+  `Bindings`), nếu không TypeScript báo lỗi assignability. Route sau cần
+  `c.env.DB` thì tự khai báo generic ở module route của mình khi mount qua
+  `app.route()`.
+
+Đã verify từ `npm ci` sạch: `npm run typecheck`, `npm test`, `npm run e2e` đều
+xanh. `npm run dev` phục vụ đúng `/`, `/admin`, `/api/health`; `/api/*` không
+tồn tại trả 404 đúng (không bị SPA fallback nuốt) nhờ `run_worker_first`.
