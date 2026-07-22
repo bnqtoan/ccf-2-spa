@@ -136,6 +136,24 @@ export function registerRoutes(app: Hono) {
   không mock.
 - `tests/unit/` dành cho logic thuần (không DB). Đã có trong `include` của
   `vitest.config.ts` từ T-03 — không cần sửa config nữa.
+- **Không dùng ngày cứng trong test.** `const DATE = '2026-07-22'` là bom hẹn
+  giờ: xanh hôm nay, đỏ vào một ngày không ai đoán được, và lỗi trông y hệt lỗi
+  logic. Đã xảy ra thật — test để cứng ngày rồi lấy `dayStart + 3600` (01:00
+  sáng), xanh lúc viết 00:xx, đỏ lúc 01:42 cùng ngày vì `start_at` trôi vào quá
+  khứ → 422 `VALIDATION`. Dùng `futureDateStr(n)` (mẫu ở
+  `tests/api/admin-schedule.test.ts`).
+- **E2E: hàng chờ reassign là tài nguyên TOÀN CỤC.** `GET /api/admin/
+  reassign-queue` suy ra từ giao của `time_off` và `booking_items` trên toàn DB,
+  không lọc theo ngày hay fixture. Ba spec đụng nó
+  (`admin-timeline`, `admin-walkin-reassign`, `flows/timeoff-reassign-block`)
+  nằm trong project `chromium-shared-queue` chạy tuần tự — thêm spec mới đụng
+  hàng chờ thì phải khai vào `testMatch` của project đó. Triệu chứng khi quên:
+  chạy từng file thì xanh, chạy cả bộ thì đỏ.
+- **`tests/e2e/global-setup.ts` dọn D1 về seed sạch trước mỗi lần chạy.** Mỗi
+  spec tạo fixture riêng và cố ý không xoá (xoá của nhau sẽ đỏ ngẫu nhiên), nên
+  dữ liệu tích luỹ: một lần chạy đầy đủ đẩy số KTV active từ 5 lên 38; sau vài
+  chục lần lên 132 KTV / 90 time-off / 174 booking sống, đủ làm timeline và
+  hàng chờ vô nghĩa.
 - **API đúng (T-01 đã dựng, đã kiểm chứng):** `vitest.config.ts` dùng plugin
   `cloudflareTest()`, **không phải** `defineWorkersConfig` — bản >= 0.13 đi kèm
   Vitest 4 đã xoá hẳn hàm đó. Trong test, gọi Worker bằng

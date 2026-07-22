@@ -321,9 +321,20 @@ WHERE status IN ('booked','in_service')
     await goToTargetDate(page)
     await expect(page.getByTestId('reassign-banner')).toBeVisible()
 
-    // "Xử lý hết hàng chờ" = huỷ item mồ côi đó (cách hợp lệ để rời reassign
-    // queue mà không cần màn T-13 — hàng chờ tính trên booked/in_service).
-    runSql(`UPDATE booking_items SET status = 'cancelled', cancelled_at = ${Math.floor(Date.now() / 1000)} WHERE id = ${orphan.itemId};`)
+    // "Xử lý hết hàng chờ" = huỷ MỌI item mồ côi đang tồn tại, không riêng
+    // item vừa tạo. Bản đầu chỉ huỷ `orphan.itemId`, nên khi chạy cả bộ E2E
+    // (T-13 và flows/ cũng tạo orphan song song) hàng chờ vẫn còn item của
+    // file khác và banner không bao giờ biến mất — đỏ khi chạy chung, xanh
+    // khi chạy riêng. Vẫn là huỷ hợp lệ, không xoá dòng (CONVENTIONS §3).
+    runSql(`
+UPDATE booking_items SET status = 'cancelled', cancelled_at = ${Math.floor(Date.now() / 1000)}
+WHERE status IN ('booked','in_service')
+  AND EXISTS (
+    SELECT 1 FROM time_off t
+    WHERE t.staff_id = booking_items.staff_id
+      AND t.start_at < booking_items.block_end_at
+      AND t.end_at > booking_items.start_at
+  );`)
 
     await page.reload()
     await goToTargetDate(page)

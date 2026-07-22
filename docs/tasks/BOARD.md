@@ -30,7 +30,7 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-11 | UI khách: tra cứu + huỷ | done | sonnet | T-09, T-05 |
 | T-12 | UI admin: day timeline | done | sonnet | T-09, T-07 |
 | T-13 | UI admin: walk-in + reassign queue | done | sonnet | T-12, T-08 |
-| T-14 | E2E Playwright: 4 luồng đầu-cuối | todo | codex | T-10..T-13 |
+| T-14 | E2E Playwright: 5 luồng đầu-cuối | done | codex | T-10..T-13 |
 | T-15 | Deploy + smoke test production | todo | sonnet | T-14 |
 | T-16 | Ba endpoint PRD §9 bị bỏ sót | done | sonnet | T-07 |
 

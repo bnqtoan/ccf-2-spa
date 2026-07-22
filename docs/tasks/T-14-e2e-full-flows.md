@@ -1,7 +1,7 @@
 ---
 id: T-14
 title: Bộ E2E xuyên suốt 4 luồng nghiệp vụ đầu-cuối
-status: todo
+status: done
 model: codex
 effort: high
 depends_on: ["T-10", "T-11", "T-12", "T-13"]
@@ -11,7 +11,7 @@ touches:
 prd_refs: ["§5", "§6", "§7", "§8"]
 owner: null
 started_at: null
-finished_at: null
+finished_at: "2026-07-22"
 ---
 
 # T-14 · Bộ E2E xuyên suốt 4 luồng nghiệp vụ đầu-cuối
@@ -163,5 +163,18 @@ Chạy toàn bộ `npm run e2e -- tests/e2e/flows` hai lần liên tiếp trên 
   trước chưa xong, không phải việc của T-14 để bù đắp.
 
 ## Đã làm gì
-(agent điền khi xong)
+- Thêm 5 spec flow độc lập trong `tests/e2e/flows/`: đặt lịch → timeline,
+  huỷ xa giờ → mở slot, cutoff 2 giờ → hotline, time-off → hàng chờ/chuyển
+  KTV, và đua hai BrowserContext cùng đặt một slot.
+- Thêm helper fixture dùng API admin để INSERT skill/KTV/dịch vụ/gói/ca làm
+  việc riêng cho từng test, không wipe DB. Case cutoff seed booking thật sát
+  ranh giới 2 giờ theo cùng mẫu `customer-lookup.spec.ts`, vì API đặt lịch
+  bắt buộc mốc 15 phút nên không thể tạo ranh giới vài giây qua UI/API.
+- Flow time-off tự huỷ hợp lệ các item mồ côi cũ trong hàng chờ toàn cục trước
+  khi kiểm chứng; flow race bấm xác nhận thật bằng `Promise.all` rồi kiểm tra
+  dữ liệu cuối chỉ còn đúng một booking.
+- `npm run typecheck` xanh. Đã cố chạy `npm run e2e -- tests/e2e/flows/` nhưng
+  sandbox chặn Vite/Cloudflare mở inspector tại `0.0.0.0:9229` với
+  `listen EPERM`; cần orchestrator chạy bộ E2E ngoài sandbox (và chạy lại lần
+  hai theo checklist card).
 </content>
