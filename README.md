@@ -43,6 +43,10 @@ npm test          # 246 test API — D1 thật trong workerd, không mock
 npm run e2e       # 56 test Playwright — 5 luồng nghiệp vụ đầu-cuối
 ```
 
+## Live
+
+Production: https://ccf-2-spa.bnqtoan.workers.dev
+
 ## Deploy
 
 Xem [docs/DEPLOY.md](docs/DEPLOY.md) — nối repo với Cloudflare Workers Builds để
