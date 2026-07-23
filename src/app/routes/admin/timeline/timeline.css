@@ -1,7 +1,11 @@
 /*
  * Timeline admin — port từ prototype/index.html:
- * .qbar/.datenav (dòng 248-252), .banner (254-259), .tl*/.ev*/.legend (261-288).
- * Prefix "ccf-tl-" để tránh đụng components.css dùng chung.
+ * .qbar/.datenav (dòng 248-252), .banner (254-259), nhóm .tl / .ev / .legend
+ * (261-288). Prefix "ccf-tl-" để tránh đụng components.css dùng chung.
+ *
+ * Lưu ý: đừng viết ".tl*" rồi "/" liền sau trong comment — chuỗi đó tạo ra
+ * dấu đóng comment sớm. Dev server bỏ qua, nhưng minifier lúc build production
+ * báo "Unexpected token Delim('*')" và build đỏ. Đã xảy ra thật ở đây.
  */
 
 .ccf-tl-page {

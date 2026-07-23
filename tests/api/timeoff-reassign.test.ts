@@ -2,7 +2,7 @@ import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
 import { reassignItemAtomically } from '../../src/worker/db/timeoff.ts'
-import { localToEpoch } from '../../src/worker/lib/time.ts'
+import { localDayBounds, weekdayOf } from '../../src/worker/lib/time.ts'
 
 const db = env.DB
 
@@ -161,10 +161,29 @@ async function postReassign(itemId: number, staffId: unknown): Promise<{ status:
   return { status: res.status, body: await res.json() }
 }
 
-// A fixed FUTURE Monday.
-const FUTURE_WEEKDAY = 1
+/**
+ * Ngày dùng cho test: N ngày TỚI, tính động theo giờ spa. Ngày cứng là bom hẹn
+ * giờ — xanh hôm nay, đỏ vào một ngày nào đó khi mốc trôi vào quá khứ.
+ */
+function futureDateStr(daysAhead: number): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(Date.now() + daysAhead * 24 * 3600 * 1000))
+}
+const FUTURE_DATE = futureDateStr(12)
+const { start: FUTURE_DAY_START } = localDayBounds(FUTURE_DATE)
+// Weekday PHẢI suy ra từ FUTURE_DATE. Để cứng `= 1` chỉ đúng khi ngày cũng
+// cứng và tình cờ rơi vào thứ Hai; với ngày động thì ca làm việc không khớp
+// ngày được hỏi và availability trả rỗng.
+const FUTURE_WEEKDAY = weekdayOf(FUTURE_DATE)
 function at(hour: number, minute = 0): number {
-  return localToEpoch(2026, 8, 3, hour, minute, 0)
+  // Neo vào FUTURE_DAY_START, không để cứng ngày: FUTURE_DATE là ngày động
+  // nên mọi mốc giờ phải tính từ đầu ngày đó, nếu không sẽ lệch vài ngày và
+  // test đỏ với thông báo trông như lỗi engine chứ không như lỗi fixture.
+  return FUTURE_DAY_START + hour * 3600 + minute * 60
 }
 
 async function itemRow(id: number): Promise<any> {

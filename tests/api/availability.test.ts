@@ -1,7 +1,7 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
-import { localDayBounds, localToEpoch } from '../../src/worker/lib/time.ts'
+import { localDayBounds, localToEpoch, weekdayOf } from '../../src/worker/lib/time.ts'
 
 const db = env.DB
 
@@ -146,8 +146,7 @@ async function getAvailability(query: string): Promise<{ status: number; body: a
   return { status: res.status, body: await res.json() }
 }
 
-// A fixed FUTURE date so "slot in the past" filtering never interferes.
-// 2026-08-03 is a Monday (weekday 1) in local time.
+// Ngày TƯƠNG LAI để bộ lọc "slot trong quá khứ" không bao giờ can thiệp.
 /**
  * Ngày dùng cho test: N ngày TỚI, tính động theo giờ spa.
  * Ngày cứng là bom hẹn giờ — test xanh hôm nay, đỏ vào một ngày nào đó khi
@@ -163,12 +162,24 @@ function futureDateStr(daysAhead: number): string {
   }).format(new Date(Date.now() + daysAhead * 24 * 3600 * 1000))
 }
 const FUTURE_DATE = futureDateStr(12)
-const FUTURE_WEEKDAY = 1
+// Weekday PHẢI suy ra từ chính FUTURE_DATE, không được để cứng. Bản trước ghi
+// `= 1` vì ngày cứng '2026-08-03' tình cờ là thứ Hai; khi đổi sang ngày động
+// thì ca làm việc tạo cho weekday 1 không còn khớp ngày được hỏi, và mọi test
+// availability trả mảng rỗng — trông y hệt lỗi engine chứ không như lỗi fixture.
+const FUTURE_WEEKDAY = weekdayOf(FUTURE_DATE)
 const { start: FUTURE_DAY_START } = localDayBounds(FUTURE_DATE)
 
-/** Local wall-clock time on FUTURE_DATE → epoch seconds. */
+/**
+ * Giờ đồng hồ địa phương trên FUTURE_DATE → epoch giây.
+ *
+ * Neo vào FUTURE_DAY_START, KHÔNG được viết `localToEpoch(2026, 8, 3, …)`:
+ * bản trước để cứng đúng ngày đó, nên khi FUTURE_DATE thành ngày động thì mọi
+ * mốc giờ lệch đi vài ngày và test đỏ với thông báo kiểu "expected [...] to
+ * include 1785726000" — trông như availability engine sai, thực ra là fixture
+ * trỏ sang ngày khác.
+ */
 function at(hour: number, minute = 0): number {
-  return localToEpoch(2026, 8, 3, hour, minute, 0)
+  return FUTURE_DAY_START + hour * 3600 + minute * 60
 }
 
 function startsOf(body: SlotsBody): number[] {
@@ -524,10 +535,10 @@ describe('GET /api/availability — thời gian và quá khứ', () => {
     const staff = await insertStaff('Lan', [skill])
     const variant = await insertVariant(skill, { duration: 30, buffer: 0 })
 
-    // 2026-08-03 giờ VN là thứ Hai (weekday 1). Nếu ai đó tính weekday bằng
-    // new Date(epoch).getDay() trên máy chạy UTC thì dayStart (17:00 UTC
-    // 2026-08-02) sẽ ra Chủ nhật (0) và test này đỏ.
-    await insertShift(staff, 1, 9 * 60, 11 * 60)
+    // Ca được tạo cho ĐÚNG weekday của FUTURE_DATE tính theo giờ VN. Nếu ai đó
+    // tính weekday bằng new Date(epoch).getDay() trên máy chạy UTC thì dayStart
+    // (17:00 UTC hôm trước) sẽ ra weekday lùi một ngày và test này đỏ.
+    await insertShift(staff, FUTURE_WEEKDAY, 9 * 60, 11 * 60)
 
     const { body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`)
     expect(body.slots.length).toBeGreaterThan(0)
@@ -543,7 +554,9 @@ describe('GET /api/availability — thời gian và quá khứ', () => {
     const variant = await insertVariant(skill, { duration: 60, buffer: 15 })
 
     // Booking bắt đầu 23:30 hôm trước, block kéo sang 00:45 ngày được hỏi.
-    const prevDay2330 = localToEpoch(2026, 8, 2, 23, 30, 0)
+    // Neo vào FUTURE_DAY_START (23:30 hôm trước = 30 phút trước nửa đêm), không
+    // để cứng ngày — xem ghi chú ở hàm `at()`.
+    const prevDay2330 = FUTURE_DAY_START - 30 * 60
     await insertBooking(staff, variant, prevDay2330, 60, 15)
 
     const { body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`)

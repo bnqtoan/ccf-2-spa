@@ -142,6 +142,18 @@ export function registerRoutes(app: Hono) {
   sáng), xanh lúc viết 00:xx, đỏ lúc 01:42 cùng ngày vì `start_at` trôi vào quá
   khứ → 422 `VALIDATION`. Dùng `futureDateStr(n)` (mẫu ở
   `tests/api/admin-schedule.test.ts`).
+
+  **Đổi sang ngày động thì phải đổi TRỌN BỘ ba thứ**, nếu không sẽ vỡ theo cách
+  khó truy hơn cả lỗi ban đầu:
+  1. `FUTURE_DATE = futureDateStr(n)`
+  2. `FUTURE_WEEKDAY = weekdayOf(FUTURE_DATE)` — **không** để `= 1`. Ca làm việc
+     tạo cho weekday cứng sẽ không khớp ngày được hỏi → availability trả rỗng,
+     và thông báo lỗi trông y hệt lỗi engine.
+  3. `at(h, m)` neo vào `FUTURE_DAY_START + h*3600 + m*60` — **không**
+     `localToEpoch(2026, 8, 3, …)`. Mốc giờ cứng sẽ lệch vài ngày, báo lỗi kiểu
+     `expected [...] to include 1785726000`.
+
+  Cả ba đều đã vấp thật, lần lượt, trong cùng một lần sửa.
 - **E2E: hàng chờ reassign là tài nguyên TOÀN CỤC.** `GET /api/admin/
   reassign-queue` suy ra từ giao của `time_off` và `booking_items` trên toàn DB,
   không lọc theo ngày hay fixture. Ba spec đụng nó

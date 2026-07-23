@@ -2,7 +2,7 @@ import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
 import { insertBookingAtomically } from '../../src/worker/db/bookings.ts'
-import { localDayBounds, localToEpoch } from '../../src/worker/lib/time.ts'
+import { localDayBounds, localToEpoch, weekdayOf } from '../../src/worker/lib/time.ts'
 import { validateBooking } from '../../src/worker/lib/validate-booking.ts'
 
 const db = env.DB
@@ -170,12 +170,18 @@ function futureDateStr(daysAhead: number): string {
   }).format(new Date(Date.now() + daysAhead * 24 * 3600 * 1000))
 }
 const FUTURE_DATE = futureDateStr(12)
-const FUTURE_WEEKDAY = 1
+// Weekday PHẢI suy ra từ FUTURE_DATE. Để cứng `= 1` chỉ đúng khi ngày cũng
+// cứng và tình cờ rơi vào thứ Hai; với ngày động thì ca làm việc không khớp
+// ngày được hỏi và availability trả rỗng.
+const FUTURE_WEEKDAY = weekdayOf(FUTURE_DATE)
 const { start: FUTURE_DAY_START } = localDayBounds(FUTURE_DATE)
 
 /** Local wall-clock on FUTURE_DATE → epoch seconds. */
 function at(hour: number, minute = 0): number {
-  return localToEpoch(2026, 8, 3, hour, minute, 0)
+  // Neo vào FUTURE_DAY_START, không để cứng ngày: FUTURE_DATE là ngày động
+  // nên mọi mốc giờ phải tính từ đầu ngày đó, nếu không sẽ lệch vài ngày và
+  // test đỏ với thông báo trông như lỗi engine chứ không như lỗi fixture.
+  return FUTURE_DAY_START + hour * 3600 + minute * 60
 }
 
 async function countItems(): Promise<number> {
