@@ -17,8 +17,13 @@ import adminAppointmentItems from './admin-appointment-items.ts'
  * Các task sau CHỈ thêm một dòng vào hàm này — không sửa theo cách khác,
  * để nhiều agent chạy song song không giẫm chân nhau khi merge.
  */
+// Mốc build — đổi mỗi lần deploy để biết production đang chạy bản nào.
+// Cũng là cách xác nhận auto-deploy qua Workers Builds thật sự hoạt động.
+const BUILD_TAG = '2026-07-24-connect-git'
+
 export function registerRoutes(app: Hono) {
   app.get('/api/health', (c) => c.json({ ok: true }))
+  app.get('/api/version', (c) => c.json({ build: BUILD_TAG }))
   app.route('/', adminCrud)
   app.route('/', availability) // T-03
   app.route('/', bookings) // T-04
