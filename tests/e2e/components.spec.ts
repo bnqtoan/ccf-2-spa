@@ -91,9 +91,17 @@ test.describe('Component base — /dev/components', () => {
     await page.goto('/dev/components')
     const input = page.getByTestId('field-name')
     await input.focus()
-    // --g-500: #3d9b7a -> rgb(61, 155, 122). toHaveCSS tự retry cho đến khi
-    // transition border-color (.18s) hoàn tất, tránh đọc màu giữa chừng animation.
-    await expect(input).toHaveCSS('border-color', 'rgb(61, 155, 122)')
+    // Cập nhật cho revamp tông TÍM (yêu cầu revamp): --g-500 đổi từ #3d9b7a
+    // (rgb(61,155,122), xanh) sang #8151e8 (rgb(129,81,232), tím — xem
+    // src/app/styles/tokens.css để biết vì sao #8151e8 chứ không phải
+    // #8B5CF6 nguyên văn đặc tả: đo contrast thật bằng getComputedStyle phát
+    // hiện #8B5CF6 dưới AA khi làm nền chữ trắng ở chỗ khác dùng chung biến
+    // này). Đây là cập nhật số liệu theo đúng thay đổi thiết kế có chủ đích,
+    // không phải nới lỏng bài kiểm — test vẫn đo đúng "viền focus dùng màu
+    // accent của theme", chỉ giá trị màu accent đó đổi.
+    // toHaveCSS tự retry cho đến khi transition border-color (.18s) hoàn
+    // tất, tránh đọc màu giữa chừng animation.
+    await expect(input).toHaveCSS('border-color', 'rgb(129, 81, 232)')
   })
 
   test('component render đúng ở viewport 375px, không có phần tử nào tràn ngang trang', async ({

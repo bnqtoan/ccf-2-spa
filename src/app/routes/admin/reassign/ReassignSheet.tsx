@@ -4,6 +4,7 @@ import Button from '../../../components/Button'
 import Notice from '../../../components/Notice'
 import Sheet from '../../../components/Sheet'
 import { formatHm } from '../timeline/format'
+import { staffAvatarUrl } from '../../../lib/staffAvatars'
 import {
   ApiError,
   getReassignCandidates,
@@ -148,7 +149,7 @@ export default function ReassignSheet({ item, onClose, onReassigned }: ReassignS
                   disabled={!c.eligible || reassigningId !== null}
                   onClick={() => handlePick(c.staff.id)}
                 >
-                  <Avatar name={c.staff.name} />
+                  <Avatar name={c.staff.name} src={staffAvatarUrl(c.staff.name)} />
                   <div style={{ flex: 1 }}>
                     <div className="ccf-rq-nm">{c.staff.name}</div>
                     <div

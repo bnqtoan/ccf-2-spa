@@ -17,7 +17,26 @@ import {
   type ServiceVariant,
 } from '../../lib/apiClient'
 import { dateChipLabel, dateStrOf, dayOfMonth, dayPartOf, formatVnd, fullDateLabel, hm, next14Days } from './format'
+import { serviceImageUrl } from '../../lib/serviceImages'
+import { staffAvatarUrl } from '../../lib/staffAvatars'
 import './booking.css'
+
+// Nhãn nhóm dịch vụ theo body_zone — dùng cho chip lọc danh mục ngang trên
+// màn chọn dịch vụ (đặc tả revamp: chip lọc nằm ngang, cuộn được, icon nhỏ
+// bên trái). body_zone là 4 giá trị cố định của seed (xem
+// src/worker/db/seed.ts) — "Tất cả" luôn đứng đầu và không lọc gì.
+const ZONE_LABEL: Record<string, string> = {
+  body: 'Massage',
+  hair: 'Tóc',
+  hands: 'Móng',
+  face: 'Da mặt',
+}
+const ZONE_ICON: Record<string, string> = {
+  body: '💆',
+  hair: '💇',
+  hands: '💅',
+  face: '✨',
+}
 
 // Số hotline của spa — theo đúng prototype/index.html dòng 646 ("028 3822 1179").
 const SPA_PHONE_DISPLAY = '028 3822 1179'
@@ -171,6 +190,10 @@ export default function BookingPage() {
 function ServiceScreen({ onPick }: { onPick: (service: Service) => void }) {
   const [services, setServices] = useState<Service[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // "all" = không lọc. Danh sách chip suy ra từ chính dữ liệu services trả
+  // về (không hard-code 4 zone cố định), nên nếu backend thêm zone mới, chip
+  // vẫn tự hiện đúng — chỉ nhãn/icon lạ sẽ fallback về chính body_zone thô.
+  const [zoneFilter, setZoneFilter] = useState<string>('all')
 
   useEffect(() => {
     let cancelled = false
@@ -186,28 +209,72 @@ function ServiceScreen({ onPick }: { onPick: (service: Service) => void }) {
     }
   }, [])
 
+  const zones = Array.from(new Set((services ?? []).map((s) => s.body_zone)))
+  const visibleServices = (services ?? []).filter((s) => zoneFilter === 'all' || s.body_zone === zoneFilter)
+
   return (
     <>
       <div className="ccf-bk-h2">Bạn muốn làm gì hôm nay?</div>
       <p className="ccf-bk-lede">Chọn dịch vụ, chúng tôi sắp kỹ thuật viên phù hợp.</p>
       {error && <Notice tone="warn">{error}</Notice>}
       {services === null && !error && <p>Đang tải...</p>}
-      {services?.map((s) => {
-        const fromPrice = Math.min(...s.variants.map((v) => v.price))
-        return (
-          <Card key={s.id} onClick={() => onPick(s)} data-testid={`service-${s.id}`}>
-            <div className="ccf-bk-row">
-              <div>
-                <div className="ccf-bk-t">{s.name}</div>
-                <div style={{ marginTop: 8 }}>
-                  <Pill>từ {formatVnd(fromPrice)}</Pill>
+
+      {services !== null && zones.length > 1 && (
+        <div className="ccf-bk-chips" data-testid="service-zone-chips">
+          <button
+            type="button"
+            className={`ccf-bk-chip ${zoneFilter === 'all' ? 'ccf-bk-chip--sel' : ''}`}
+            onClick={() => setZoneFilter('all')}
+            data-testid="zone-chip-all"
+          >
+            Tất cả
+          </button>
+          {zones.map((z) => (
+            <button
+              key={z}
+              type="button"
+              className={`ccf-bk-chip ${zoneFilter === z ? 'ccf-bk-chip--sel' : ''}`}
+              onClick={() => setZoneFilter(z)}
+              data-testid={`zone-chip-${z}`}
+            >
+              <span className="ccf-bk-chip-icon" aria-hidden="true">
+                {ZONE_ICON[z] ?? '•'}
+              </span>
+              {ZONE_LABEL[z] ?? z}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="ccf-bk-svc-grid">
+        {visibleServices.map((s) => {
+          const fromPrice = Math.min(...s.variants.map((v) => v.price))
+          const totalMin = Math.min(...s.variants.map((v) => v.duration_min))
+          return (
+            <button
+              key={s.id}
+              type="button"
+              className="ccf-bk-svc-card"
+              onClick={() => onPick(s)}
+              data-testid={`service-${s.id}`}
+            >
+              <div className="ccf-bk-svc-img-wrap">
+                <img className="ccf-bk-svc-img" src={serviceImageUrl(s.body_zone)} alt="" loading="lazy" />
+              </div>
+              <div className="ccf-bk-svc-body">
+                <div className="ccf-bk-svc-name">{s.name}</div>
+                <div className="ccf-bk-svc-meta">{totalMin} phút</div>
+                <div className="ccf-bk-svc-foot">
+                  <span className="ccf-bk-svc-price">từ {formatVnd(fromPrice)}</span>
+                  <span className="ccf-bk-svc-plus" aria-hidden="true">
+                    +
+                  </span>
                 </div>
               </div>
-              <div className="ccf-bk-chev">›</div>
-            </div>
-          </Card>
-        )
-      })}
+            </button>
+          )
+        })}
+      </div>
     </>
   )
 }

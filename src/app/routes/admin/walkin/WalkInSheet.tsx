@@ -5,6 +5,7 @@ import Field from '../../../components/Field'
 import Notice from '../../../components/Notice'
 import Sheet from '../../../components/Sheet'
 import { formatHm } from '../timeline/format'
+import { staffAvatarUrl } from '../../../lib/staffAvatars'
 import {
   ApiError,
   createWalkIn,
@@ -230,7 +231,7 @@ export default function WalkInFab({ onCreated }: WalkInFabProps) {
                         className={`ccf-wi-staffpick${staffId === s.id ? ' ccf-wi-staffpick--sel' : ''}`}
                         onClick={() => setStaffId(s.id)}
                       >
-                        <Avatar name={s.name} />
+                        <Avatar name={s.name} src={staffAvatarUrl(s.name)} />
                         <div style={{ flex: 1 }}>
                           <div className="ccf-wi-nm">{s.name}</div>
                           <div className="ccf-wi-mt">{i === 0 ? 'Rảnh ngay · gợi ý' : 'Rảnh ngay'}</div>

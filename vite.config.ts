@@ -4,6 +4,13 @@ import { cloudflare } from '@cloudflare/vite-plugin'
 
 export default defineConfig({
   root: 'src/app',
+  // Vite mặc định lấy publicDir = <root>/public = src/app/public, nhưng ảnh
+  // tĩnh của revamp nằm ở public/ tại gốc repo (đúng vị trí Cloudflare Workers
+  // assets binding đọc sau khi build — xem wrangler.jsonc assets.directory =
+  // "./dist/client"). Không set lại thì `npm run dev` trả về index.html (SPA
+  // fallback) cho mọi request /images/*, và `npm run build` không copy ảnh
+  // vào dist/client — ảnh 404 im lặng cả dev lẫn production.
+  publicDir: '../../public',
   build: {
     outDir: '../../dist',
     emptyOutDir: true,

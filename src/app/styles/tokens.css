@@ -1,22 +1,52 @@
 /*
- * Design tokens — trích nguyên văn từ prototype/index.html (dòng 8-24).
- * KHÔNG đổi giá trị. Đây là port, không phải thiết kế lại.
- * Nguồn: prototype/index.html <style> :root { ... } + @media(prefers-reduced-motion:reduce)
+ * Design tokens — bảng màu TÍM (purple/violet), revamp theo reference UI kit
+ * hiện đại (xem yêu cầu revamp, không có ảnh tham chiếu — mô tả lại bằng chữ).
+ *
+ * QUAN TRỌNG: giữ NGUYÊN TÊN mọi biến `--g-*` cũ (g900..g50) — toàn bộ
+ * components.css + routes/*.css tham chiếu các biến này bằng tên, nên đổi
+ * GIÁ TRỊ sang tím là đủ để lan truyền phong cách mới ra toàn app mà không
+ * phải sửa lại từng file CSS. "g" giờ hiểu là "grade" (thang bậc), không còn
+ * là viết tắt của "green".
+ *
+ * Test tests/e2e/components.spec.ts đo tương phản CHỮ TRẮNG trên nút primary
+ * so với 2 giá trị RGB literal cố định rgb(47,128,100)/rgb(28,74,58) (test đo
+ * "nếu nút vẫn có 2 điểm nền này thì chữ trắng vẫn đủ tương phản" — không
+ * đọc lại biến CSS). Đổi màu gradient không ảnh hưởng vì text nút vẫn là
+ * #fff và test không đọc giá trị --g-600/--g-800 thật, chỉ tự vẽ 2 nền giả
+ * định để kiểm — đã tự đo lại bằng script, cả hai vẫn ≥4.5:1 (4.78 / 10.05),
+ * nên KHÔNG cần và KHÔNG được sửa test này.
+ *
+ * Số đo tương phản thật của palette mới (trên nền trắng), đo bằng
+ * getComputedStyle + công thức WCAG, không nhìn bằng mắt:
+ *   --g-900 #3B1F73 vs #fff → 12.89:1
+ *   --g-800 #5B21B6 vs #fff → 8.98:1   (gradient nút, đầu tối)
+ *   --g-700 #6D28D9 vs #fff → 7.10:1   (dùng cho text link/giá trên nền trắng)
+ *   --g-600 #7C3AED vs #fff → 5.70:1   (gradient nút, đầu sáng)
+ *   --g-500 #8151E8 vs #fff → 4.91:1   (đã CHỈNH TỪ #8B5CF6 gốc trong đặc tả —
+ *     đo thật trên browser bằng getComputedStyle phát hiện #8B5CF6 chỉ đạt
+ *     4.23:1 với chữ trắng, DƯỚI AA 4.5:1, mà --g-500 lại là đầu sáng của
+ *     --grad-primary VÀ của gradient .ccf-bk-ok .mark — cả hai đều có chữ/dấu
+ *     trắng đè lên. Đây đúng bài học "đo bằng getComputedStyle, đừng nhìn mắt"
+ *     nêu trong yêu cầu revamp. #8151E8 vẫn cùng tông tím sáng, chỉ đậm hơn
+ *     một chút để qua AA.)
  */
 :root {
-  --g-900: #14342a;
-  --g-800: #1c4a3a;
-  --g-700: #26654f;
-  --g-600: #2f8064;
-  --g-500: #3d9b7a;
-  --g-300: #8fc9b3;
-  --g-100: #dff0e8;
-  --g-50: #f1f8f4;
-  --ink: #16241f;
-  --ink-2: #4a5f57;
-  --ink-3: #7d918a;
-  --line: #e6efe9;
-  --bg: #f4f8f5;
+  --g-900: #3b1f73;
+  --g-800: #5b21b6;
+  --g-700: #6d28d9;
+  --g-600: #7c3aed;
+  --g-500: #8151e8;
+  --g-300: #c4b5fd;
+  --g-100: #ede7fb;
+  --g-50: #f5f3fe;
+  --ink: #241b3a;
+  --ink-2: #5b5470;
+  /* #6E6685: 4.62:1 trên nền trắng, 4.65:1 trên --bg lavender — đo lại vì bản
+     gốc (#7d918a trên nền xanh gốc) vốn đã dưới AA (~3.1-3.3:1) cho chữ
+     thường; ở đây nâng lên đạt AA cho cả hai bề mặt hay dùng. */
+  --ink-3: #6e6685;
+  --line: #e6e0f7;
+  --bg: #eeecfb;
   --white: #fff;
   --warn-bg: #fff6e6;
   --warn-line: #f0d9a8;
@@ -24,10 +54,13 @@
   --danger: #b4342b;
   --danger-bg: #fdeceb;
   --sand: #f6f2e9;
-  --r: 18px;
-  --r-sm: 13px;
-  --shadow: 0 1px 2px rgba(20, 52, 42, 0.05), 0 10px 30px -12px rgba(20, 52, 42, 0.16);
-  --shadow-lift: 0 2px 6px rgba(20, 52, 42, 0.07), 0 18px 42px -16px rgba(20, 52, 42, 0.24);
+  /* Gradient tím chuẩn của nút chính/chip đang chọn/avatar-ring, theo đúng
+     đặc tả reference: từ ~#8B5CF6 tới ~#7C3AED. */
+  --grad-primary: linear-gradient(135deg, var(--g-500), var(--g-600));
+  --r: 20px;
+  --r-sm: 14px;
+  --shadow: 0 1px 2px rgba(91, 33, 182, 0.05), 0 14px 34px -14px rgba(91, 33, 182, 0.22);
+  --shadow-lift: 0 2px 8px rgba(91, 33, 182, 0.08), 0 20px 46px -16px rgba(91, 33, 182, 0.3);
   --ease: cubic-bezier(0.22, 0.68, 0.32, 1);
   --tap: 48px;
 }

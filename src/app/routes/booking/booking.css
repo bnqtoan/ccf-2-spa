@@ -28,7 +28,7 @@
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.78));
   backdrop-filter: saturate(1.4) blur(14px);
   -webkit-backdrop-filter: saturate(1.4) blur(14px);
-  border-bottom: 1px solid rgba(20, 52, 42, 0.06);
+  border-bottom: 1px solid rgba(59, 31, 115, 0.06);
 }
 .ccf-bk-bar h1 {
   font-size: 18px;
@@ -137,39 +137,60 @@
 .ccf-bk-dates::-webkit-scrollbar {
   display: none;
 }
+/* Ô ngày dạng TRÒN (đặc tả revamp: "lưới ngày dạng ô tròn, ngày đang chọn
+ * là hình tròn tím đặc, chữ trắng"). Nhãn thứ nằm trên, số ngày nằm trong
+ * vòng tròn bên dưới — cả khối vẫn là 1 nút bấm duy nhất (giữ nguyên
+ * data-testid + hành vi click ở component). Vùng chạm >= --tap. */
 .ccf-bk-date {
   flex: 0 0 auto;
-  width: 62px;
+  width: 56px;
   min-height: var(--tap);
-  padding: 11px 0;
-  border-radius: 15px;
+  padding: 6px 0 9px;
+  border-radius: var(--r-sm);
   text-align: center;
-  border: 1.5px solid var(--line);
-  background: var(--white);
+  border: none;
+  background: transparent;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   transition:
     transform 0.18s var(--ease),
-    box-shadow 0.22s var(--ease),
-    background 0.22s var(--ease),
-    border-color 0.18s var(--ease);
+    background 0.22s var(--ease);
 }
 .ccf-bk-date .ccf-bk-dw {
   font-size: 12px;
   color: var(--ink-3);
+  font-weight: 600;
 }
 .ccf-bk-date .ccf-bk-dd {
-  font-size: 19px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
   font-weight: 660;
-  margin-top: 2px;
+  border: 1.5px solid var(--line);
+  background: var(--white);
+  transition:
+    background 0.22s var(--ease),
+    border-color 0.18s var(--ease),
+    box-shadow 0.22s var(--ease),
+    color 0.18s var(--ease);
 }
-.ccf-bk-date.ccf-bk-date--sel {
-  background: linear-gradient(160deg, var(--g-600), var(--g-800));
-  border-color: transparent;
-  color: #fff;
-  box-shadow: 0 6px 18px -6px rgba(38, 101, 79, 0.6);
+.ccf-bk-date:active {
+  transform: scale(0.95);
 }
 .ccf-bk-date.ccf-bk-date--sel .ccf-bk-dw {
-  color: var(--g-300);
+  color: var(--g-700);
+}
+.ccf-bk-date.ccf-bk-date--sel .ccf-bk-dd {
+  background: var(--grad-primary);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 16px -6px rgba(124, 58, 237, 0.6);
 }
 
 /* ---------- slots ---------- */
@@ -192,7 +213,7 @@
   font-size: 16px;
   text-align: center;
   min-height: var(--tap);
-  box-shadow: 0 1px 2px rgba(20, 52, 42, 0.04);
+  box-shadow: 0 1px 2px rgba(59, 31, 115, 0.04);
   cursor: pointer;
   transition:
     transform 0.16s var(--ease),
@@ -204,7 +225,7 @@
   background: linear-gradient(160deg, var(--g-600), var(--g-800));
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 8px 20px -7px rgba(38, 101, 79, 0.65);
+  box-shadow: 0 8px 20px -7px rgba(109, 40, 217, 0.65);
 }
 .ccf-bk-daypart {
   font-size: 14px;
@@ -255,7 +276,7 @@
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.97) 46%);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border-top: 1px solid rgba(20, 52, 42, 0.06);
+  border-top: 1px solid rgba(59, 31, 115, 0.06);
 }
 
 /* ---------- success screen ---------- */
@@ -273,7 +294,7 @@
   place-items: center;
   font-size: 38px;
   margin: 0 auto 20px;
-  box-shadow: 0 14px 32px -12px rgba(38, 101, 79, 0.7);
+  box-shadow: 0 14px 32px -12px rgba(109, 40, 217, 0.7);
 }
 .ccf-bk-ok h2 {
   font-size: 24px;
@@ -304,4 +325,155 @@
 }
 .ccf-bk-staffpick .ccf-bk-nm {
   font-weight: 620;
+}
+
+/* ---------- category filter chips (revamp) ----------
+ * Chip lọc danh mục nằm ngang, cuộn được, icon nhỏ bên trái. Chip đang chọn:
+ * nền gradient tím + chữ trắng. Chip khác: nền trắng + viền nhạt.
+ * Vùng chạm >= --tap(48px) — khách phổ thông dùng điện thoại (ràng buộc #1).
+ */
+.ccf-bk-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 14px 10px;
+  margin: 0 -14px 4px;
+  scrollbar-width: none;
+}
+.ccf-bk-chips::-webkit-scrollbar {
+  display: none;
+}
+.ccf-bk-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap);
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--white);
+  color: var(--ink-2);
+  font-size: 15px;
+  font-weight: 620;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.2s var(--ease),
+    color 0.2s var(--ease),
+    border-color 0.2s var(--ease),
+    transform 0.16s var(--ease);
+}
+.ccf-bk-chip:active {
+  transform: scale(0.97);
+}
+.ccf-bk-chip-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+.ccf-bk-chip.ccf-bk-chip--sel {
+  background: var(--grad-primary);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 8px 18px -8px rgba(124, 58, 237, 0.55);
+}
+
+/* ---------- service grid — lưới 2 cột, ảnh thật trên thẻ (revamp) ----------
+ * Thẻ dịch vụ: ảnh chiếm phần trên (bo góc), tên, thời lượng, giá đậm tím +
+ * nút tròn "+" gradient tím góc phải. Không có rating/review count thật từ
+ * API (backend không có bảng đánh giá) — KHÔNG bịa số liệu trông như đánh
+ * giá thật của khách, chỉ hiện thời lượng (dữ liệu thật từ variant ngắn nhất).
+ */
+.ccf-bk-svc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.ccf-bk-svc-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  border: none;
+  border-radius: var(--r);
+  background: var(--white);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    box-shadow 0.25s var(--ease),
+    transform 0.2s var(--ease);
+}
+@media (hover: hover) {
+  .ccf-bk-svc-card:hover {
+    box-shadow: var(--shadow-lift);
+    transform: translateY(-1px);
+  }
+}
+.ccf-bk-svc-card:active {
+  transform: scale(0.988);
+}
+.ccf-bk-svc-img-wrap {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: var(--g-100);
+  overflow: hidden;
+}
+.ccf-bk-svc-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ccf-bk-svc-body {
+  padding: 12px 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ccf-bk-svc-name {
+  font-size: 15px;
+  font-weight: 660;
+  line-height: 1.3;
+  /* tối đa 2 dòng, không tràn thẻ khi tên dịch vụ dài */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ccf-bk-svc-meta {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.ccf-bk-svc-foot {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ccf-bk-svc-price {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--g-700);
+}
+.ccf-bk-svc-plus {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--grad-primary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 6px 14px -6px rgba(124, 58, 237, 0.6);
+}
+@media (min-width: 460px) {
+  .ccf-bk-svc-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
