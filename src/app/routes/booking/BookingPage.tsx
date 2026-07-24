@@ -10,12 +10,16 @@ import {
   ApiError,
   createBooking,
   createComboBooking,
+  createPayment,
   getAvailability,
   getComboAvailability,
+  getPaymentStatus,
   getServices,
   type AvailabilitySlot,
   type BookingResult,
   type ComboBookingResult,
+  type CreatePaymentResult,
+  type PaymentProviderId,
   type Service,
   type ServiceVariant,
 } from '../../lib/apiClient'
@@ -86,6 +90,22 @@ type Screen =
       startAt: number
       staffId: number | null
       result: BookingResult
+      /** true when the customer paid online (QR/PayPal) and it landed — the
+       *  success screen must say "đã thanh toán", never "trả tại spa". */
+      paidOnline?: boolean
+    }
+  // PAYMENT track: after a booking is created with "pay online", show the
+  // payment screen (QR for SePay / redirect for PayPal) and wait for it to land.
+  | {
+      name: 'pay'
+      service: Service
+      variant: ServiceVariant
+      dateStr: string
+      startAt: number
+      staffId: number | null
+      result: BookingResult
+      provider: PaymentProviderId
+      amountVnd: number
     }
   // --- R1a serial combo (≥2 dịch vụ, 1 KTV, nối tiếp) ---
   | { name: 'combo-time'; basket: BasketItem[] }
@@ -142,6 +162,9 @@ export default function BookingPage() {
   } else if (screen.name === 'combo-confirm') {
     title = 'Xác nhận'
     sub = `Combo ${screen.basket.length} dịch vụ`
+  } else if (screen.name === 'pay') {
+    title = 'Thanh toán'
+    sub = 'Hoàn tất thanh toán để giữ chỗ'
   } else if (screen.name === 'done' || screen.name === 'combo-done') {
     title = 'Đã đặt lịch'
     sub = ''
@@ -236,7 +259,46 @@ export default function BookingPage() {
             onSlotTaken={() =>
               setScreen({ name: 'time', service: screen.service, variant: screen.variant })
             }
-            onDone={(result) =>
+            onDone={(result, payWith) => {
+              // payWith === null → pay at spa (existing path, straight to done).
+              // Otherwise start the online payment flow on the new appointment.
+              if (payWith === null) {
+                setScreen({
+                  name: 'done',
+                  service: screen.service,
+                  variant: screen.variant,
+                  dateStr: screen.dateStr,
+                  startAt: screen.startAt,
+                  staffId: screen.staffId,
+                  result,
+                })
+              } else {
+                setScreen({
+                  name: 'pay',
+                  service: screen.service,
+                  variant: screen.variant,
+                  dateStr: screen.dateStr,
+                  startAt: screen.startAt,
+                  staffId: screen.staffId,
+                  result,
+                  provider: payWith,
+                  amountVnd: screen.variant.price,
+                })
+              }
+            }}
+          />
+        )}
+        {screen.name === 'pay' && (
+          <PaymentScreen
+            service={screen.service}
+            variant={screen.variant}
+            dateStr={screen.dateStr}
+            startAt={screen.startAt}
+            staffId={screen.staffId}
+            result={screen.result}
+            provider={screen.provider}
+            amountVnd={screen.amountVnd}
+            onPaid={() =>
               setScreen({
                 name: 'done',
                 service: screen.service,
@@ -244,7 +306,8 @@ export default function BookingPage() {
                 dateStr: screen.dateStr,
                 startAt: screen.startAt,
                 staffId: screen.staffId,
-                result,
+                result: screen.result,
+                paidOnline: true,
               })
             }
           />
@@ -257,6 +320,7 @@ export default function BookingPage() {
             startAt={screen.startAt}
             staffId={screen.staffId}
             result={screen.result}
+            paidOnline={screen.paidOnline ?? false}
             onHome={resetToStart}
           />
         )}
@@ -683,12 +747,16 @@ function ConfirmScreen({
   startAt: number
   staffId: number | null
   onSlotTaken: () => void
-  onDone: (result: BookingResult) => void
+  onDone: (result: BookingResult, payWith: PaymentProviderId | null) => void
 }) {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  // Payment MODE (playbook: rule shown BEFORE commit). Default 'at_spa' keeps
+  // the existing behaviour untouched. Choosing an online provider means the
+  // slot is only fully confirmed once payment lands — shown right here.
+  const [payMode, setPayMode] = useState<'at_spa' | PaymentProviderId>('at_spa')
 
   const nameValid = name.trim().length > 1
   const phoneDigits = phone.replace(/\D/g, '')
@@ -708,7 +776,7 @@ function ConfirmScreen({
         start_at: startAt,
         ...(staffId !== null ? { staff_id: staffId } : {}),
       })
-      onDone(result)
+      onDone(result, payMode === 'at_spa' ? null : payMode)
     } catch (err) {
       if (err instanceof ApiError && err.code === 'SLOT_TAKEN') {
         // Race condition thật (PRD §5): người khác vừa đặt mất chỗ này. Không
@@ -774,9 +842,51 @@ function ConfirmScreen({
         data-testid="confirm-phone"
       />
 
-      <Notice tone="info">
-        <b>Thanh toán tại spa.</b> Bạn có thể huỷ miễn phí đến trước giờ hẹn 2 tiếng.
-      </Notice>
+      <div className="ccf-bk-label">Hình thức thanh toán</div>
+      <Card
+        selected={payMode === 'at_spa'}
+        onClick={() => setPayMode('at_spa')}
+        data-testid="pay-mode-at_spa"
+      >
+        <div className="ccf-bk-row">
+          <div>
+            <div className="ccf-bk-t">Trả tại spa</div>
+            <div className="ccf-bk-d">Thanh toán khi đến. Huỷ miễn phí đến trước giờ hẹn 2 tiếng.</div>
+          </div>
+          <Pill>Mặc định</Pill>
+        </div>
+      </Card>
+      <Card
+        selected={payMode === 'sepay'}
+        onClick={() => setPayMode('sepay')}
+        data-testid="pay-mode-sepay"
+      >
+        <div className="ccf-bk-row">
+          <div>
+            <div className="ccf-bk-t">Chuyển khoản QR (VietQR)</div>
+            <div className="ccf-bk-d">Quét mã, chuyển khoản để giữ chỗ ngay.</div>
+          </div>
+        </div>
+      </Card>
+      <Card
+        selected={payMode === 'paypal'}
+        onClick={() => setPayMode('paypal')}
+        data-testid="pay-mode-paypal"
+      >
+        <div className="ccf-bk-row">
+          <div>
+            <div className="ccf-bk-t">Thẻ quốc tế (PayPal)</div>
+            <div className="ccf-bk-d">Thanh toán bằng thẻ qua PayPal.</div>
+          </div>
+        </div>
+      </Card>
+
+      {payMode !== 'at_spa' && (
+        <Notice tone="info" data-testid="pay-online-hint">
+          Chỗ của bạn được <b>giữ tạm</b> và chỉ xác nhận chắc chắn sau khi thanh toán thành công. Nếu bạn
+          thoát giữa chừng, lịch sẽ chưa được xác nhận — bạn có thể đặt lại hoặc chọn "Trả tại spa".
+        </Notice>
+      )}
 
       {notice && (
         <Notice tone="warn" data-testid="confirm-error">
@@ -786,9 +896,196 @@ function ConfirmScreen({
 
       <div className="ccf-bk-dock">
         <Button disabled={!canSubmit} onClick={handleSubmit} data-testid="confirm-submit">
-          {submitting ? 'Đang xử lý...' : 'Xác nhận đặt lịch'}
+          {submitting
+            ? 'Đang xử lý...'
+            : payMode === 'at_spa'
+              ? 'Xác nhận đặt lịch'
+              : 'Đặt lịch & thanh toán'}
         </Button>
       </div>
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 4b. Thanh toán online (PAYMENT track) — SePay QR hoặc PayPal redirect.
+// ---------------------------------------------------------------------------
+// Đây là nơi hai cổng OPPOSITE-shaped lộ ra khác nhau đúng chỗ: SePay hiện QR
+// và CHỜ webhook; PayPal đưa khách sang trang PayPal. UI switch trên
+// intent.kind. Ràng buộc hiện TRƯỚC: khách luôn thấy "chỗ chỉ chắc chắn sau khi
+// thanh toán" — không có trạng thái "đã trả tiền mà không có xác nhận".
+
+function PaymentScreen({
+  service,
+  variant,
+  startAt,
+  result,
+  provider,
+  amountVnd,
+  onPaid,
+}: {
+  service: Service
+  variant: ServiceVariant
+  dateStr: string
+  startAt: number
+  staffId: number | null
+  result: BookingResult
+  provider: PaymentProviderId
+  amountVnd: number
+  onPaid: () => void
+}) {
+  const [intent, setIntent] = useState<CreatePaymentResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<'pending' | 'paid'>('pending')
+
+  // 1) Create the payment intent once, on mount.
+  useEffect(() => {
+    let cancelled = false
+    createPayment({
+      appointment_id: result.appointment.id as number,
+      amount_vnd: amountVnd,
+      provider,
+      description: `${service.name} · ${variant.name}`,
+    })
+      .then((res) => {
+        if (cancelled) return
+        setIntent(res)
+        // PayPal: send the customer to approve. (In sandbox this opens the
+        // real PayPal approve page; here we surface the link as a button too.)
+        if (res.intent.kind === 'redirect') {
+          // Do not auto-redirect silently — show the button so the customer
+          // understands they are leaving to pay. See render below.
+        }
+      })
+      .catch(() => {
+        if (!cancelled)
+          setError('Chưa tạo được thanh toán. Bạn thử lại, hoặc quay lại chọn "Trả tại spa".')
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 2) Poll payment status while pending (the SePay webhook flips it server-
+  // side; the customer's screen learns via this poll). Stops on 'paid'.
+  useEffect(() => {
+    if (intent === null || status === 'paid') return
+    let cancelled = false
+    const timer = setInterval(async () => {
+      try {
+        const s = await getPaymentStatus(intent.order_ref)
+        if (cancelled) return
+        if (s.status === 'paid') {
+          setStatus('paid')
+          clearInterval(timer)
+        }
+      } catch {
+        // transient — keep polling.
+      }
+    }, 3000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [intent, status])
+
+  if (error) {
+    return (
+      <>
+        <Notice tone="warn" data-testid="pay-error">
+          {error}
+        </Notice>
+        <div className="ccf-bk-dock">
+          <Button onClick={onPaid} variant="ghost" data-testid="pay-skip">
+            Tiếp tục (trả tại spa)
+          </Button>
+        </div>
+      </>
+    )
+  }
+
+  if (intent === null) {
+    return <p data-testid="pay-loading">Đang tạo thanh toán...</p>
+  }
+
+  const paid = status === 'paid'
+
+  return (
+    <>
+      <div className="ccf-bk-summary">
+        <div className="ccf-bk-sline">
+          <span className="ccf-bk-k">Dịch vụ</span>
+          <span className="ccf-bk-v">
+            {service.name} · {variant.name}
+          </span>
+        </div>
+        <div className="ccf-bk-sline">
+          <span className="ccf-bk-k">Thời gian</span>
+          <span className="ccf-bk-v">{hm(startAt)}</span>
+        </div>
+        <div className="ccf-bk-sline ccf-bk-sline--total">
+          <span className="ccf-bk-k">Cần thanh toán</span>
+          <span className="ccf-bk-v">{formatVnd(amountVnd)}</span>
+        </div>
+      </div>
+
+      {paid ? (
+        <Notice tone="info" data-testid="pay-confirmed">
+          <b>Đã nhận thanh toán.</b> Lịch của bạn đã được xác nhận chắc chắn.
+        </Notice>
+      ) : (
+        <Notice tone="info" data-testid="pay-waiting">
+          Chỗ đang được <b>giữ tạm</b>. Lịch chỉ xác nhận chắc chắn sau khi thanh toán thành công.
+        </Notice>
+      )}
+
+      {/* SePay = QR to display + wait. PayPal = redirect button. Switch on kind. */}
+      {intent.intent.kind === 'qr' && !paid && (
+        <div data-testid="pay-qr">
+          {intent.intent.qrImageUrl ? (
+            <img
+              src={intent.intent.qrImageUrl}
+              alt="Mã QR chuyển khoản"
+              style={{ width: '100%', maxWidth: 280, display: 'block', margin: '12px auto' }}
+            />
+          ) : (
+            <Notice tone="warn">Chưa cấu hình tài khoản nhận. Vui lòng chọn "Trả tại spa".</Notice>
+          )}
+          <div className="ccf-bk-summary">
+            <div className="ccf-bk-sline">
+              <span className="ccf-bk-k">Số tài khoản</span>
+              <span className="ccf-bk-v">{intent.intent.accountNumber || '—'}</span>
+            </div>
+            <div className="ccf-bk-sline">
+              <span className="ccf-bk-k">Nội dung chuyển khoản</span>
+              <span className="ccf-bk-v" data-testid="pay-code">
+                {intent.intent.code}
+              </span>
+            </div>
+          </div>
+          <p className="ccf-bk-d">
+            Quét mã bằng app ngân hàng, giữ nguyên <b>nội dung chuyển khoản</b> để hệ thống tự xác nhận. Màn
+            hình sẽ tự cập nhật khi nhận được tiền.
+          </p>
+        </div>
+      )}
+
+      {intent.intent.kind === 'redirect' && !paid && (
+        <div className="ccf-bk-dock" data-testid="pay-redirect">
+          <a href={intent.intent.approveUrl} target="_blank" rel="noreferrer">
+            <Button>Thanh toán qua PayPal</Button>
+          </a>
+        </div>
+      )}
+
+      {paid && (
+        <div className="ccf-bk-dock">
+          <Button onClick={onPaid} data-testid="pay-continue">
+            Xem lịch đã đặt
+          </Button>
+        </div>
+      )}
     </>
   )
 }
@@ -804,6 +1101,7 @@ function DoneScreen({
   startAt,
   staffId,
   result,
+  paidOnline,
   onHome,
 }: {
   service: Service
@@ -812,6 +1110,7 @@ function DoneScreen({
   startAt: number
   staffId: number | null
   result: BookingResult
+  paidOnline: boolean
   onHome: () => void
 }) {
   const isToday = dateStr === dateStrOf(Math.floor(Date.now() / 1000))
@@ -841,10 +1140,15 @@ function DoneScreen({
           <span className="ccf-bk-v">{staffName}</span>
         </div>
         <div className="ccf-bk-sline ccf-bk-sline--total">
-          <span className="ccf-bk-k">Thanh toán tại spa</span>
+          <span className="ccf-bk-k">{paidOnline ? 'Đã thanh toán' : 'Thanh toán tại spa'}</span>
           <span className="ccf-bk-v">{formatVnd(variant.price)}</span>
         </div>
       </div>
+      {paidOnline && (
+        <Notice tone="info" data-testid="done-paid-online">
+          Bạn đã thanh toán trực tuyến — không cần trả thêm tại spa.
+        </Notice>
+      )}
       <Notice tone="info">
         Vui lòng đến sớm 5 phút. Cần đổi lịch, gọi <b>{SPA_PHONE_DISPLAY}</b>.
       </Notice>

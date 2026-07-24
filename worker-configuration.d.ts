@@ -4,6 +4,16 @@
 interface __BaseEnv_Env {
 	DB: D1Database;
 	ASSETS: Fetcher;
+	// PAYMENT track — set as secrets via `wrangler secret put` (see README/note).
+	// Optional so the Worker still builds/deploys before they are configured;
+	// the adapters fail closed when a required one is missing.
+	SEPAY_API_KEY?: string;
+	SEPAY_ACCOUNT_NUMBER?: string;
+	PAYPAL_CLIENT_ID?: string;
+	PAYPAL_SECRET?: string;
+	PAYPAL_BASE_URL?: string;
+	PAYPAL_VND_PER_USD?: string;
+	PAYPAL_WEBHOOK_ID?: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

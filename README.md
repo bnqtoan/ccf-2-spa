@@ -43,6 +43,24 @@ npm test          # 246 test API — D1 thật trong workerd, không mock
 npm run e2e       # 56 test Playwright — 5 luồng nghiệp vụ đầu-cuối
 ```
 
+## Thanh toán online (PAYMENT)
+
+Thanh toán full tại lúc đặt lịch, sau adapter pattern — SePay (VietQR, nhận tiền
+qua webhook) và PayPal (redirect + capture). "Trả tại spa" vẫn là mặc định;
+thanh toán online là một MODE, không thay thế.
+
+**Secrets phải set qua `wrangler secret put <NAME>` (KHÔNG commit):**
+
+- `SEPAY_API_KEY` — key xác thực webhook SePay (`Authorization: Apikey <key>`)
+- `SEPAY_ACCOUNT_NUMBER` — số tài khoản nhận tiền, encode vào VietQR
+- `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET` — REST API credentials
+- `PAYPAL_WEBHOOK_ID` — id webhook PayPal, dùng để verify chữ ký
+
+**Vars không bí mật (đã có trong `wrangler.jsonc`):** `PAYPAL_BASE_URL` (mặc định
+sandbox), `PAYPAL_VND_PER_USD` (tỉ giá quy đổi khi tạo order PayPal).
+
+Local dev: đặt các giá trị trên vào `.dev.vars` (đã gitignore).
+
 ## Live
 
 Production: https://ccf-2-spa.bnqtoan.workers.dev

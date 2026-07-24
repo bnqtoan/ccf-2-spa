@@ -16,6 +16,17 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
+      // PAYMENT track: inject test-only payment secrets so the webhook auth /
+      // adapters have values under test. These are NOT real secrets — the real
+      // ones are set in prod via `wrangler secret put` and never committed.
+      miniflare: {
+        bindings: {
+          SEPAY_API_KEY: 'test-sepay-key',
+          SEPAY_ACCOUNT_NUMBER: '0123456789',
+          PAYPAL_VND_PER_USD: '25000',
+          PAYPAL_WEBHOOK_ID: 'test-webhook-id',
+        },
+      },
     }),
   ],
 })

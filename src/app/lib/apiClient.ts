@@ -112,6 +112,64 @@ export async function createBooking(payload: BookingPayload): Promise<BookingRes
   return (await res.json()) as BookingResult
 }
 
+// --- PAYMENT track: online payment at booking time -------------------------
+// The intent is DISCRIMINATED by `kind`: SePay returns a QR to render + wait
+// on; PayPal returns a redirect URL. The UI switches on `kind` — it must not
+// treat them as the same shape. Never leak a raw gateway error to the customer;
+// this layer forwards the `code` and the UI translates it.
+
+export type PaymentProviderId = 'sepay' | 'paypal'
+
+export type PaymentIntent =
+  | {
+      kind: 'qr'
+      qrData: string | null
+      qrImageUrl: string | null
+      code: string
+      accountNumber: string
+      amountVnd: number
+    }
+  | { kind: 'redirect'; approveUrl: string; providerOrderId: string }
+
+export interface CreatePaymentResult {
+  order_ref: string
+  provider: PaymentProviderId
+  intent: PaymentIntent
+}
+
+export interface PaymentStatusResult {
+  order_ref: string
+  provider: PaymentProviderId
+  status: 'pending' | 'paid' | 'failed' | 'expired'
+  amount_vnd: number
+  appointment_id: number | null
+  paid_at: number | null
+}
+
+/** `POST /api/payments/create` — starts a payment for an existing appointment.
+ *  Returns the discriminated intent (qr | redirect). */
+export async function createPayment(payload: {
+  appointment_id: number
+  amount_vnd: number
+  provider: PaymentProviderId
+  description?: string
+}): Promise<CreatePaymentResult> {
+  const res = await fetch('/api/payments/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) return parseErrorAndThrow(res)
+  return (await res.json()) as CreatePaymentResult
+}
+
+/** `GET /api/payments/:orderRef` — poll whether the money has landed. */
+export async function getPaymentStatus(orderRef: string): Promise<PaymentStatusResult> {
+  const res = await fetch(`/api/payments/${encodeURIComponent(orderRef)}`)
+  if (!res.ok) return parseErrorAndThrow(res)
+  return (await res.json()) as PaymentStatusResult
+}
+
 /**
  * `POST /api/combo/availability` — R1a serial combo. Returns `coverable`
  * (does any single technician hold every skill the chosen variants need?) plus

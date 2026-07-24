@@ -13,6 +13,7 @@ import adminAppointmentItems from './admin-appointment-items.ts'
 import adminStaffItems from './admin-staff-items.ts'
 import combo from './combo.ts'
 import adminOverview from './admin-overview.ts'
+import payments from './payments.ts'
 
 /**
  * Điểm gom route duy nhất (CONVENTIONS §7).
@@ -41,5 +42,6 @@ export function registerRoutes(app: Hono) {
   app.route('/', adminStaffItems) // TRACK-A: G0 upcoming-items guard
   app.route('/', combo) // R1a — serial combo (customer multi-select)
   app.route('/', adminOverview) // Track C — R5 occupancy + R2 revenue/payroll
+  app.route('/', payments) // PAYMENT track — SePay + PayPal adapters
   // các task sau thêm dòng của mình vào đây
 }

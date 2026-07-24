@@ -17,5 +17,15 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
+  },
+  // PAYMENT track. Only NON-SECRET config lives here as plain vars. The real
+  // secrets (SEPAY_API_KEY, SEPAY_ACCOUNT_NUMBER, PAYPAL_CLIENT_ID,
+  // PAYPAL_SECRET, PAYPAL_WEBHOOK_ID) MUST be set with `wrangler secret put
+  // <NAME>` — never committed here. See the "Payment secrets" note in README.
+  "vars": {
+    // PayPal sandbox base by default; set to https://api-m.paypal.com in prod.
+    "PAYPAL_BASE_URL": "https://api-m.sandbox.paypal.com",
+    // VND per 1 USD used to convert at PayPal order-creation time. Configurable.
+    "PAYPAL_VND_PER_USD": "25000"
   }
 }
