@@ -15,15 +15,26 @@ import {
   getSkills,
   getStaff,
   getStaffSkillIds,
+  getUpcomingItems,
   unassignSkillFromStaff,
   updateStaff,
   type Skill,
   type Staff,
+  type UpcomingItem,
 } from './api'
+import { localParts } from '../timeline/format'
 
 /** Bản đồ staff_id -> skill_id[]. Nạp thật từ GET /api/admin/staff/:id/skills
  * mỗi khi mở sheet của một nhân viên (openStaffSheet), rồi cập nhật cục bộ theo
  * thao tác gán/bỏ gán. Endpoint đọc này được bổ sung sau T-06. */
+
+/** "DD/MM HH:mm" — lịch sắp tới có thể ở ngày khác hôm nay, nên hiện cả ngày
+ * lẫn giờ (formatHm chỉ có giờ). */
+function formatDayHm(epochSec: number): string {
+  const p = localParts(epochSec)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(p.day)}/${pad(p.month)} ${pad(p.hour)}:${pad(p.minute)}`
+}
 
 export default function StaffTab() {
   const [staff, setStaff] = useState<Staff[]>([])
@@ -42,6 +53,12 @@ export default function StaffTab() {
 
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null)
   const [skillSheetError, setSkillSheetError] = useState<string | null>(null)
+
+  // G0: khi định "Cho ngưng làm" một nhân viên còn lịch sắp tới, KHÔNG tắt âm
+  // thầm (tắt active giấu luôn cả cột lẫn khách khỏi timeline mà không vào hàng
+  // chờ). Chặn lại, liệt kê lịch bị ảnh hưởng, chỉ sang "Báo nghỉ".
+  const [blockedItems, setBlockedItems] = useState<UpcomingItem[] | null>(null)
+  const [checkingDeactivate, setCheckingDeactivate] = useState(false)
 
   async function loadAll() {
     setLoading(true)
@@ -81,13 +98,41 @@ export default function StaffTab() {
     }
   }
 
-  async function handleToggleActive(member: Staff) {
-    const nextActive = member.active ? false : true
+  /** Kích hoạt lại: luôn an toàn, làm ngay. Trả về true nếu đã đổi. */
+  async function reactivate(member: Staff): Promise<boolean> {
     try {
-      const updated = await updateStaff(member.id, { active: nextActive })
+      const updated = await updateStaff(member.id, { active: true })
       setStaff((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
+      return true
     } catch {
       setLoadError('Không cập nhật được trạng thái nhân viên.')
+      return false
+    }
+  }
+
+  /**
+   * Cho ngưng làm: CHẶN nếu nhân viên còn lịch sắp tới (G0). Tắt active sẽ giấu
+   * cột + khách khỏi timeline mà không đưa vào hàng chờ — đúng bẫy im lặng.
+   * Kiểm tra trước, nếu còn lịch thì không gọi update, hiện danh sách bị ảnh
+   * hưởng và chỉ sang "Báo nghỉ". Trả về true nếu đã cho ngưng thành công.
+   */
+  async function deactivate(member: Staff): Promise<boolean> {
+    setBlockedItems(null)
+    setCheckingDeactivate(true)
+    try {
+      const upcoming = await getUpcomingItems(member.id)
+      if (upcoming.length > 0) {
+        setBlockedItems(upcoming)
+        return false
+      }
+      const updated = await updateStaff(member.id, { active: false })
+      setStaff((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
+      return true
+    } catch {
+      setLoadError('Không kiểm tra được lịch sắp tới của nhân viên. Vui lòng thử lại.')
+      return false
+    } finally {
+      setCheckingDeactivate(false)
     }
   }
 
@@ -130,6 +175,7 @@ export default function StaffTab() {
   async function openStaffSheet(staff: Staff) {
     setEditingStaff(staff)
     setSkillSheetError(null)
+    setBlockedItems(null)
     try {
       const ids = await getStaffSkillIds(staff.id)
       setStaffSkills((prev) => ({ ...prev, [staff.id]: new Set(ids) }))
@@ -245,6 +291,7 @@ export default function StaffTab() {
         onClose={() => {
           setEditingStaff(null)
           setSkillSheetError(null)
+          setBlockedItems(null)
         }}
         title={editingStaff?.name ?? ''}
         footer={
@@ -260,17 +307,53 @@ export default function StaffTab() {
               <Button
                 variant={editingStaff.active ? 'ghost' : 'primary'}
                 size="sm"
+                disabled={checkingDeactivate}
                 data-testid="staff-toggle-active"
                 onClick={async () => {
-                  await handleToggleActive(editingStaff)
-                  setEditingStaff((prev) =>
-                    prev ? { ...prev, active: prev.active ? 0 : 1 } : prev,
-                  )
+                  if (editingStaff.active) {
+                    // Cho ngưng làm: có thể bị CHẶN vì còn lịch sắp tới (G0).
+                    const done = await deactivate(editingStaff)
+                    if (done) {
+                      setEditingStaff((prev) => (prev ? { ...prev, active: 0 } : prev))
+                    }
+                  } else {
+                    const done = await reactivate(editingStaff)
+                    if (done) {
+                      setEditingStaff((prev) => (prev ? { ...prev, active: 1 } : prev))
+                    }
+                  }
                 }}
               >
-                {editingStaff.active ? 'Cho ngưng làm' : 'Kích hoạt lại'}
+                {editingStaff.active
+                  ? checkingDeactivate
+                    ? 'Đang kiểm tra...'
+                    : 'Cho ngưng làm'
+                  : 'Kích hoạt lại'}
               </Button>
             </div>
+
+            {blockedItems !== null && blockedItems.length > 0 && (
+              <Notice tone="warn" data-testid="deactivate-blocked">
+                <strong>Chưa thể cho {editingStaff.name} ngưng làm.</strong>
+                <p style={{ margin: '6px 0' }}>
+                  Nhân viên này còn {blockedItems.length} lịch hẹn sắp tới. Nếu cho ngưng
+                  bây giờ, các lịch này sẽ biến mất khỏi bảng ngày mà không ai được báo — khách
+                  vẫn tưởng còn hẹn.
+                </p>
+                <ul className="ccf-su-blocked-list" data-testid="deactivate-blocked-list">
+                  {blockedItems.map((it) => (
+                    <li key={it.item_id}>
+                      {formatDayHm(it.start_at)} · {it.customer_name} — {it.service_name}
+                    </li>
+                  ))}
+                </ul>
+                <p style={{ margin: '6px 0 0' }}>
+                  Nếu nhân viên chỉ nghỉ một buổi, hãy dùng <strong>“Báo nghỉ”</strong> trên màn
+                  <strong> Lịch ngày</strong> (bấm tên nhân viên ở đầu cột) — cách đó sẽ đưa các
+                  lịch bị ảnh hưởng vào hàng chờ để gọi khách và chuyển người.
+                </p>
+              </Notice>
+            )}
 
             {skillSheetError && <Notice tone="warn">{skillSheetError}</Notice>}
 

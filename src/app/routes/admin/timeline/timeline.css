@@ -247,3 +247,42 @@
 .ccf-tl-actions .ccf-btn {
   width: auto;
 }
+
+/* G1: đầu cột KTV bấm được để "Báo nghỉ". Giữ nguyên dáng .ccf-tl-head nhưng
+   là <button> nên reset appearance và cho con trỏ. */
+.ccf-tl-head--btn {
+  appearance: none;
+  border: none;
+  border-bottom: 1.5px solid var(--line);
+  width: 100%;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.2;
+}
+.ccf-tl-head--btn:hover {
+  background: var(--g-100);
+}
+.ccf-tl-head-hint {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--g-600);
+  opacity: 0.85;
+}
+.ccf-tl-off-times {
+  display: flex;
+  gap: 12px;
+}
+.ccf-tl-off-times > * {
+  flex: 1;
+}
+.ccf-tl-off-affected {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.6;
+}

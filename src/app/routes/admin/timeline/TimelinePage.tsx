@@ -1,19 +1,36 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import AdminNav from '../../../components/AdminNav'
 import Button from '../../../components/Button'
 import EmptyState from '../../../components/EmptyState'
+import Field from '../../../components/Field'
 import Notice from '../../../components/Notice'
 import Sheet from '../../../components/Sheet'
 import {
   ApiError,
+  createTimeOff,
   getReassignQueue,
   getSchedule,
   setBookingStatus,
+  type AffectedItem,
   type ScheduleItem,
   type ScheduleResponse,
   type ScheduleStaff,
 } from './api'
 import { addDays, formatDateNav, formatHm, minutesOfLocalDay, toDateStr } from './format'
 import './timeline.css'
+
+// Việt Nam cố định UTC+7, không có DST (đã dùng đúng giả định này ở
+// tests/e2e/flows/helpers.ts). Quy đổi (ngày spa + HH:mm) -> epoch giây.
+const SPA_UTC_OFFSET_SEC = 7 * 60 * 60
+
+function localDateHmToEpoch(dateStr: string, hh: number, mm: number): number {
+  const parts = dateStr.split('-').map(Number)
+  const y = parts[0] ?? 0
+  const m = parts[1] ?? 1
+  const d = parts[2] ?? 1
+  return Date.UTC(y, m - 1, d, hh, mm, 0) / 1000 - SPA_UTC_OFFSET_SEC
+}
 
 // Chiều cao một hàng-giờ trên lưới, tính bằng px (đúng prototype dòng 271:
 // `.tlcell{height:52px}`). Mọi phép tính top/height của block đều dựa vào
@@ -90,6 +107,80 @@ export default function TimelinePage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
+  const navigate = useNavigate()
+
+  // G1: "Báo nghỉ" — bấm tên KTV ở đầu cột để mở. Chọn khoảng giờ trong NGÀY
+  // đang xem, xác nhận -> POST /api/admin/time-off -> hiện ngay các lịch bị ảnh
+  // hưởng (chúng chảy vào hàng chờ xếp lại). Time-off KHÔNG tự huỷ lịch (PRD §8).
+  const [timeOffStaff, setTimeOffStaff] = useState<{ id: number; name: string } | null>(null)
+  const [offStart, setOffStart] = useState('09:00')
+  const [offEnd, setOffEnd] = useState('12:00')
+  const [offReason, setOffReason] = useState('')
+  const [offSubmitting, setOffSubmitting] = useState(false)
+  const [offError, setOffError] = useState<string | null>(null)
+  const [offAffected, setOffAffected] = useState<AffectedItem[] | null>(null)
+
+  function openTimeOff(s: { id: number; name: string }) {
+    setTimeOffStaff(s)
+    setOffStart('09:00')
+    setOffEnd('12:00')
+    setOffReason('')
+    setOffError(null)
+    setOffAffected(null)
+  }
+
+  function closeTimeOff() {
+    setTimeOffStaff(null)
+    setOffAffected(null)
+    setOffError(null)
+  }
+
+  function parseHm(v: string): { hh: number; mm: number } | null {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim())
+    if (!m) return null
+    const hh = Number(m[1])
+    const mm = Number(m[2])
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null
+    return { hh, mm }
+  }
+
+  async function handleSubmitTimeOff() {
+    if (timeOffStaff === null) return
+    setOffError(null)
+    const start = parseHm(offStart)
+    const end = parseHm(offEnd)
+    if (start === null || end === null) {
+      setOffError('Giờ không hợp lệ. Nhập theo dạng HH:mm, ví dụ 13:30.')
+      return
+    }
+    const startAt = localDateHmToEpoch(date, start.hh, start.mm)
+    const endAt = localDateHmToEpoch(date, end.hh, end.mm)
+    if (startAt >= endAt) {
+      setOffError('Giờ bắt đầu phải trước giờ kết thúc.')
+      return
+    }
+    setOffSubmitting(true)
+    try {
+      const { affected_items } = await createTimeOff({
+        staff_id: timeOffStaff.id,
+        start_at: startAt,
+        end_at: endAt,
+        reason: offReason.trim() || null,
+      })
+      setOffAffected(affected_items)
+      // Lịch nghỉ mới có thể khiến các item thành mồ côi — tải lại timeline +
+      // hàng chờ để cột hiện khối nghỉ và banner cập nhật số.
+      await loadAll()
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setOffError(err.message)
+      } else {
+        setOffError('Không ghi được lịch nghỉ. Vui lòng thử lại.')
+      }
+    } finally {
+      setOffSubmitting(false)
+    }
+  }
 
   async function loadAll() {
     setLoading(true)
@@ -161,6 +252,7 @@ export default function TimelinePage() {
   if (loading && schedule === null) {
     return (
       <div className="ccf-tl-page">
+        <AdminNav />
         <p>Đang tải lịch...</p>
       </div>
     )
@@ -169,6 +261,7 @@ export default function TimelinePage() {
   if (error && schedule === null) {
     return (
       <div className="ccf-tl-page">
+        <AdminNav />
         <Notice tone="warn">{error}</Notice>
         <Button variant="ghost" onClick={loadAll}>
           Thử lại
@@ -185,6 +278,7 @@ export default function TimelinePage() {
 
   return (
     <div className="ccf-tl-page">
+      <AdminNav />
       {queueCount > 0 && (
         <div className="ccf-tl-banner" data-testid="reassign-banner">
           <div className="ccf-tl-banner-ic" aria-hidden="true">
@@ -200,12 +294,7 @@ export default function TimelinePage() {
             variant="primary"
             size="sm"
             data-testid="reassign-banner-cta"
-            onClick={() => {
-              // T-13 (màn hàng chờ reassign) chưa xong tại thời điểm viết card
-              // này — placeholder tạm: cuộn lên đầu trang thay vì điều hướng.
-              // Ghi rõ trong "Đã làm gì".
-              window.scrollTo({ top: 0, behavior: 'smooth' })
-            }}
+            onClick={() => navigate('/admin/reassign')}
           >
             Xử lý ngay
           </Button>
@@ -243,9 +332,19 @@ export default function TimelinePage() {
           <div className="ccf-tl-grid" style={{ '--cols': staff.length } as React.CSSProperties}>
             <div className="ccf-tl-head" style={{ position: 'sticky', left: 0, zIndex: 3 }} />
             {staff.map((s) => (
-              <div className="ccf-tl-head" key={s.id} data-testid={`staff-head-${s.id}`}>
+              <button
+                type="button"
+                className="ccf-tl-head ccf-tl-head--btn"
+                key={s.id}
+                data-testid={`staff-head-${s.id}`}
+                title={`Báo nghỉ cho ${s.name}`}
+                onClick={() => openTimeOff({ id: s.id, name: s.name })}
+              >
                 {s.name}
-              </div>
+                <span className="ccf-tl-head-hint" aria-hidden="true">
+                  Báo nghỉ
+                </span>
+              </button>
             ))}
 
             {hours.map((h) =>
@@ -434,6 +533,98 @@ export default function TimelinePage() {
             <Notice tone="info" style={{ marginTop: 16 }}>
               “Khách không đến” dùng để ghi nhận lịch sử, không mở lại được slot đã trôi qua.
             </Notice>
+          </div>
+        )}
+      </Sheet>
+
+      <Sheet
+        open={timeOffStaff !== null}
+        onClose={closeTimeOff}
+        title={timeOffStaff ? `Báo nghỉ · ${timeOffStaff.name}` : ''}
+        footer={
+          offAffected !== null ? (
+            <Button variant="primary" onClick={() => navigate('/admin/reassign')} data-testid="time-off-go-queue">
+              Sang hàng chờ xử lý
+            </Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={closeTimeOff}>
+                Đóng
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleSubmitTimeOff}
+                disabled={offSubmitting}
+                data-testid="time-off-submit"
+              >
+                {offSubmitting ? 'Đang ghi...' : 'Xác nhận nghỉ'}
+              </Button>
+            </>
+          )
+        }
+      >
+        {timeOffStaff && (
+          <div data-testid="time-off-sheet">
+            {offAffected === null ? (
+              <>
+                <Notice tone="info" style={{ marginBottom: 14 }}>
+                  Báo nghỉ cho <strong>{timeOffStaff.name}</strong> trong ngày{' '}
+                  <strong>{formatDateNav(date, todayStr)}</strong>. Các lịch đã đặt trong khoảng
+                  nghỉ sẽ KHÔNG bị huỷ — chúng chuyển vào hàng chờ để bạn gọi khách và xếp người khác.
+                </Notice>
+                {offError && (
+                  <Notice tone="warn" style={{ marginBottom: 14 }} data-testid="time-off-error">
+                    {offError}
+                  </Notice>
+                )}
+                <div className="ccf-tl-off-times">
+                  <Field
+                    label="Nghỉ từ"
+                    type="time"
+                    value={offStart}
+                    onChange={(e) => setOffStart(e.target.value)}
+                    data-testid="time-off-start"
+                  />
+                  <Field
+                    label="Đến"
+                    type="time"
+                    value={offEnd}
+                    onChange={(e) => setOffEnd(e.target.value)}
+                    data-testid="time-off-end"
+                  />
+                </div>
+                <Field
+                  label="Lý do (tuỳ chọn)"
+                  value={offReason}
+                  onChange={(e) => setOffReason(e.target.value)}
+                  placeholder="Ví dụ: ốm, việc gia đình"
+                  data-testid="time-off-reason"
+                />
+              </>
+            ) : (
+              <div data-testid="time-off-result">
+                <Notice tone="warn" style={{ marginBottom: 14 }}>
+                  Đã ghi nhận <strong>{timeOffStaff.name}</strong> nghỉ.
+                </Notice>
+                {offAffected.length === 0 ? (
+                  <p>Không có lịch nào trong khoảng nghỉ — không cần xếp lại ai.</p>
+                ) : (
+                  <>
+                    <div className="ccf-tl-label">
+                      {offAffected.length} lịch cần xếp lại (đã vào hàng chờ)
+                    </div>
+                    <ul className="ccf-tl-off-affected" data-testid="time-off-affected-list">
+                      {offAffected.map((it) => (
+                        <li key={it.item_id}>
+                          {formatHm(it.start_at)} · {it.customer_name} — {it.service_name}
+                          {it.customer_phone ? ` · ${it.customer_phone}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Sheet>

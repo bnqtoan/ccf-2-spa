@@ -85,6 +85,36 @@ export async function getReassignQueue(): Promise<ReassignQueueItem[]> {
   return body.items
 }
 
+export interface AffectedItem {
+  item_id: number
+  customer_name: string
+  customer_phone: string | null
+  service_name: string
+  start_at: number
+  [key: string]: unknown
+}
+
+/**
+ * `POST /api/admin/time-off` — ghi nhận một kỹ thuật viên nghỉ (PRD §8). KHÔNG
+ * bao giờ tự huỷ/tự chuyển lịch: trả về `affected_items` để người xử lý — chính
+ * là các item sẽ hiện trong hàng chờ xếp lại. Không throw khi có lịch đè; chỉ
+ * throw khi request lỗi thật (validation/mạng).
+ */
+export async function createTimeOff(input: {
+  staff_id: number
+  start_at: number
+  end_at: number
+  reason?: string | null
+}): Promise<{ affected_items: AffectedItem[] }> {
+  const res = await fetch('/api/admin/time-off', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) return parseErrorAndThrow(res)
+  return (await res.json()) as { affected_items: AffectedItem[] }
+}
+
 /** `POST /api/admin/bookings/:id/status` — chuyển trạng thái một booking_item. */
 export async function setBookingStatus(
   itemId: number,
