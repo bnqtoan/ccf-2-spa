@@ -8,6 +8,12 @@ import './AdminPage.css'
  */
 const CARDS = [
   {
+    to: '/admin/overview',
+    icon: '📊',
+    title: 'Tổng quan',
+    desc: 'Doanh thu, tỷ lệ lấp đầy, khách không đến hôm nay — bấm 1 KTV xem tiền công.',
+  },
+  {
     to: '/admin/timeline',
     icon: '📅',
     title: 'Lịch ngày',

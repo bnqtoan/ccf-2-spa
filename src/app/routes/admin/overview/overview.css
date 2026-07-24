@@ -1,0 +1,282 @@
+.ccf-ov-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 16px 56px;
+}
+
+.ccf-ov-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.ccf-ov-head h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+}
+
+.ccf-ov-datenav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 4px;
+}
+.ccf-ov-datenav button {
+  min-width: 40px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 22px;
+  color: var(--g-700);
+  cursor: pointer;
+}
+.ccf-ov-datenav button:hover {
+  background: var(--g-50);
+}
+.ccf-ov-cur {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 0 8px;
+  min-width: 130px;
+  text-align: center;
+}
+
+/* ---- KPI strip ---- */
+.ccf-ov-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+@media (max-width: 720px) {
+  .ccf-ov-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.ccf-ov-kpi {
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px 16px 14px;
+  box-shadow: 0 1px 2px rgba(59, 31, 115, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ccf-ov-kpi-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.ccf-ov-kpi-val {
+  font-size: 26px;
+  font-weight: 750;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.ccf-ov-kpi-hint {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.ccf-ov-sub {
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--ink);
+  margin: 0 0 12px;
+}
+
+/* ---- occupancy grid ---- */
+.ccf-ov-gridwrap {
+  overflow-x: auto;
+  border: 1.5px solid var(--line);
+  border-radius: var(--r);
+  background: var(--white);
+}
+.ccf-ov-grid {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 560px;
+}
+.ccf-ov-grid th,
+.ccf-ov-grid td {
+  border-bottom: 1px solid var(--line);
+}
+.ccf-ov-grid tbody tr:last-child td {
+  border-bottom: 0;
+}
+.ccf-ov-name-h,
+.ccf-ov-occ-h,
+.ccf-ov-hour-h {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding: 8px 6px;
+  text-align: center;
+  background: var(--g-50);
+}
+.ccf-ov-name-h {
+  text-align: left;
+  padding-left: 14px;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+.ccf-ov-name {
+  text-align: left;
+  padding: 0;
+  position: sticky;
+  left: 0;
+  background: var(--white);
+  z-index: 1;
+}
+.ccf-ov-name-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--g-700);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ccf-ov-name-btn:hover {
+  background: var(--g-50);
+}
+.ccf-ov-leave-tag {
+  color: var(--ink-3);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.ccf-ov-cell {
+  width: 34px;
+  height: 40px;
+  padding: 0;
+}
+.ccf-ov-cell--free {
+  background: #eceaf1;
+}
+.ccf-ov-cell--busy {
+  background: var(--g-500);
+}
+
+.ccf-ov-occ-h {
+  padding-right: 14px;
+}
+.ccf-ov-occ {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 8px 14px 8px 8px;
+  white-space: nowrap;
+}
+
+.ccf-ov-legend {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.ccf-ov-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ccf-ov-sw {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.ccf-ov-sw--busy {
+  background: var(--g-500);
+}
+.ccf-ov-sw--free {
+  background: #eceaf1;
+}
+.ccf-ov-legend-note {
+  color: var(--ink-3);
+}
+
+/* ---- earnings drill-down ---- */
+.ccf-ov-periodtabs {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--g-50);
+  border-radius: var(--r-sm);
+  padding: 4px;
+  margin-bottom: 16px;
+}
+.ccf-ov-periodtab {
+  border: 0;
+  background: transparent;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ccf-ov-periodtab.is-active {
+  background: var(--white);
+  color: var(--g-700);
+  box-shadow: 0 1px 2px rgba(59, 31, 115, 0.1);
+}
+
+.ccf-ov-earn {
+  display: flex;
+  flex-direction: column;
+}
+.ccf-ov-earn-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ccf-ov-earn-line--total {
+  border-bottom: 0;
+  margin-top: 4px;
+  padding-top: 16px;
+}
+.ccf-ov-earn-line--total .ccf-ov-k {
+  font-weight: 700;
+  color: var(--ink);
+}
+.ccf-ov-earn-line--total .ccf-ov-v {
+  font-size: 22px;
+  font-weight: 750;
+  color: var(--g-700);
+}
+.ccf-ov-k {
+  font-size: 15px;
+  color: var(--ink-2);
+}
+.ccf-ov-v {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--ink);
+}

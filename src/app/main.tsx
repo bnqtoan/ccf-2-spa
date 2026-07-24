@@ -8,6 +8,7 @@ import LookupPage from './routes/lookup/LookupPage'
 import TimelinePage from './routes/admin/timeline/TimelinePage'
 import ReassignQueuePage from './routes/admin/reassign/ReassignQueuePage'
 import SetupPage from './routes/admin/setup/SetupPage'
+import OverviewPage from './routes/admin/overview/OverviewPage'
 import './styles/tokens.css'
 
 const root = document.getElementById('root')
@@ -21,6 +22,7 @@ createRoot(root).render(
       <Routes>
         <Route path="/" element={<GuestPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin/overview" element={<OverviewPage />} />
         <Route path="/admin/timeline" element={<TimelinePage />} />
         <Route path="/admin/reassign" element={<ReassignQueuePage />} />
         <Route path="/admin/setup" element={<SetupPage />} />

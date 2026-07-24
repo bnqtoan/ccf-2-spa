@@ -33,12 +33,15 @@ type SkillName = (typeof SKILL_NAMES)[number]
 
 // 5 KTV, overlapping skills. Lan has 2 skills (Massage + Tóc); Yen has
 // exactly 1 skill (Da mặt only) — the spread the card requires.
+// commission: hoa hồng theo tỉ lệ doanh thu (0.30 = 30%). Đặt sẵn vài KTV để
+// màn /admin/overview có số lương thật khi bấm vào KTV. Yen để 0 (mặc định) —
+// minh chứng "chưa cấu hình = lương 0", không phải số bất ngờ.
 const STAFF_DEFS = [
-  { name: 'Lan', phone: '0901000001', skills: ['Massage', 'Tóc'] as SkillName[] },
-  { name: 'Huong', phone: '0901000002', skills: ['Massage'] as SkillName[] },
-  { name: 'Mai', phone: '0901000003', skills: ['Móng'] as SkillName[] },
-  { name: 'Trang', phone: '0901000004', skills: ['Móng', 'Da mặt'] as SkillName[] },
-  { name: 'Yen', phone: '0901000005', skills: ['Da mặt'] as SkillName[] },
+  { name: 'Lan', phone: '0901000001', skills: ['Massage', 'Tóc'] as SkillName[], commission: 0.35 },
+  { name: 'Huong', phone: '0901000002', skills: ['Massage'] as SkillName[], commission: 0.3 },
+  { name: 'Mai', phone: '0901000003', skills: ['Móng'] as SkillName[], commission: 0.4 },
+  { name: 'Trang', phone: '0901000004', skills: ['Móng', 'Da mặt'] as SkillName[], commission: 0.25 },
+  { name: 'Yen', phone: '0901000005', skills: ['Da mặt'] as SkillName[], commission: 0 },
 ] as const
 
 // 4 services x 2 variants each = 8 variants. Buffers vary 5/10/15 minutes.
@@ -112,8 +115,8 @@ export function buildSeedStatements(): SeedStatement[] {
 
   for (const s of STAFF_DEFS) {
     stmts.push({
-      sql: 'INSERT INTO staff (name, phone, active) VALUES (?, ?, 1)',
-      params: [s.name, s.phone],
+      sql: 'INSERT INTO staff (name, phone, active, commission_rate) VALUES (?, ?, 1, ?)',
+      params: [s.name, s.phone, s.commission],
     })
     for (const skillName of s.skills) {
       stmts.push({
@@ -151,6 +154,20 @@ export function buildSeedStatements(): SeedStatement[] {
     }
   }
 
+  // Trang nghỉ CẢ NGÀY hôm nay — để màn /admin/overview có một KTV hiện "Nghỉ"
+  // thật, chứng minh nhánh occupancy=null (nghỉ được trừ khỏi mẫu số, không hiện
+  // 0% oan). Phủ rộng [dayStart-6h, dayStart+30h] để chắc chắn trùm trọn ca
+  // 09:00–19:00 GIỜ ĐỊA PHƯƠNG bất kể lệch UTC (dayStart ở đây là nửa đêm UTC).
+  {
+    const offStart = dayStart - 6 * 3600
+    const offEnd = dayStart + 30 * 3600
+    stmts.push({
+      sql: `INSERT INTO time_off (staff_id, start_at, end_at, reason)
+            VALUES ((SELECT id FROM staff WHERE name = 'Trang'), ?, ?, 'nghỉ phép')`,
+      params: [offStart, offEnd],
+    })
+  }
+
   // Sample customers: one with a phone, one anonymous walk-in (phone NULL).
   stmts.push({
     sql: 'INSERT INTO customers (name, phone) VALUES (?, ?)',
@@ -161,61 +178,71 @@ export function buildSeedStatements(): SeedStatement[] {
     params: ['Khach le'],
   })
 
-  // Two sample bookings so overlap/availability queries have real data:
-  // Lan (Massage 60') at 10:00, Mai (Móng Sơn gel) at 11:00, same day.
-  stmts.push({
-    sql: `INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
-          SELECT (SELECT id FROM customers WHERE name = 'Khach Seed 1'),
-                 ?,
-                 ? + sv.duration_min * 60,
-                 'booked', 'online', ?
-          FROM service_variants sv
-          JOIN services s ON s.id = sv.service_id
-          WHERE s.name = 'Massage toàn thân' AND sv.name = '60 phút'`,
-    params: [dayStart + 10 * 3600, dayStart + 10 * 3600, now],
-  })
-  stmts.push({
-    sql: `INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_at, block_end_at, status)
-          SELECT
-            (SELECT id FROM appointments WHERE source = 'online' AND start_at = ?),
-            (SELECT id FROM staff WHERE name = 'Lan'),
-            sv.id,
-            ?,
-            ? + sv.duration_min * 60,
-            ? + sv.duration_min * 60 + sv.buffer_after_min * 60,
-            'booked'
-          FROM service_variants sv
-          JOIN services s ON s.id = sv.service_id
-          WHERE s.name = 'Massage toàn thân' AND sv.name = '60 phút'`,
-    params: [dayStart + 10 * 3600, dayStart + 10 * 3600, dayStart + 10 * 3600, dayStart + 10 * 3600],
-  })
+  // Sample bookings so overlap/availability AND the /admin/overview measurement
+  // surface have real data. Statuses are chosen so the dashboard shows non-zero,
+  // non-trivial numbers:
+  //   - Lan Massage 60' @10:00  → status 'done'    (counts toward revenue+payroll)
+  //   - Mai Móng Sơn gel @11:00 → status 'done'    (counts toward revenue+payroll)
+  //   - Lan Cắt+gọi @14:00      → status 'no_show' (EXCLUDED from revenue; feeds no-show KPI)
+  const BOOKINGS = [
+    {
+      customer: 'Khach Seed 1',
+      source: 'online',
+      staff: 'Lan',
+      service: 'Massage toàn thân',
+      variant: '60 phút',
+      hour: 10,
+      status: 'done',
+    },
+    {
+      customer: 'Khach le',
+      source: 'walk_in',
+      staff: 'Mai',
+      service: 'Chăm sóc móng',
+      variant: 'Sơn gel',
+      hour: 11,
+      status: 'done',
+    },
+    {
+      customer: 'Khach Seed 1',
+      source: 'online',
+      staff: 'Lan',
+      service: 'Cắt gội',
+      variant: 'Cắt + gội',
+      hour: 14,
+      status: 'no_show',
+    },
+  ] as const
 
-  stmts.push({
-    sql: `INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
-          SELECT (SELECT id FROM customers WHERE name = 'Khach le'),
-                 ?,
-                 ? + sv.duration_min * 60,
-                 'booked', 'walk_in', ?
-          FROM service_variants sv
-          JOIN services s ON s.id = sv.service_id
-          WHERE s.name = 'Chăm sóc móng' AND sv.name = 'Sơn gel'`,
-    params: [dayStart + 11 * 3600, dayStart + 11 * 3600, now],
-  })
-  stmts.push({
-    sql: `INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_at, block_end_at, status)
-          SELECT
-            (SELECT id FROM appointments WHERE source = 'walk_in' AND start_at = ?),
-            (SELECT id FROM staff WHERE name = 'Mai'),
-            sv.id,
-            ?,
-            ? + sv.duration_min * 60,
-            ? + sv.duration_min * 60 + sv.buffer_after_min * 60,
-            'booked'
-          FROM service_variants sv
-          JOIN services s ON s.id = sv.service_id
-          WHERE s.name = 'Chăm sóc móng' AND sv.name = 'Sơn gel'`,
-    params: [dayStart + 11 * 3600, dayStart + 11 * 3600, dayStart + 11 * 3600, dayStart + 11 * 3600],
-  })
+  for (const b of BOOKINGS) {
+    const at = dayStart + b.hour * 3600
+    stmts.push({
+      sql: `INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
+            SELECT (SELECT id FROM customers WHERE name = ?),
+                   ?,
+                   ? + sv.duration_min * 60,
+                   ?, ?, ?
+            FROM service_variants sv
+            JOIN services s ON s.id = sv.service_id
+            WHERE s.name = ? AND sv.name = ?`,
+      params: [b.customer, at, at, b.status, b.source, now, b.service, b.variant],
+    })
+    stmts.push({
+      sql: `INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_at, block_end_at, status)
+            SELECT
+              (SELECT id FROM appointments WHERE source = ? AND start_at = ?),
+              (SELECT id FROM staff WHERE name = ?),
+              sv.id,
+              ?,
+              ? + sv.duration_min * 60,
+              ? + sv.duration_min * 60 + sv.buffer_after_min * 60,
+              ?
+            FROM service_variants sv
+            JOIN services s ON s.id = sv.service_id
+            WHERE s.name = ? AND sv.name = ?`,
+      params: [b.source, at, b.staff, at, at, at, b.status, b.service, b.variant],
+    })
+  }
 
   return stmts
 }
