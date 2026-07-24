@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { seed } from '../../src/worker/db/seed'
 import migrationSql from '../../migrations/0001_init.sql?raw'
+import migration2Sql from '../../migrations/0002_commission_tax.sql?raw'
 
 const db = env.DB
 
@@ -26,7 +27,9 @@ function splitStatements(sql: string): string[] {
 }
 
 beforeAll(async () => {
-  for (const stmt of splitStatements(migrationSql)) {
+  // Áp cả 0001 và 0002: seed() ghi cột commission_rate do 0002 thêm, nên phải
+  // có migration thứ hai trước khi seed chạy.
+  for (const stmt of [...splitStatements(migrationSql), ...splitStatements(migration2Sql)]) {
     await db.prepare(stmt).run()
   }
 })

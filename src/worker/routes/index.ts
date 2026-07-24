@@ -12,6 +12,7 @@ import adminSchedule from './admin-schedule.ts'
 import adminAppointmentItems from './admin-appointment-items.ts'
 import adminStaffItems from './admin-staff-items.ts'
 import combo from './combo.ts'
+import adminOverview from './admin-overview.ts'
 
 /**
  * Điểm gom route duy nhất (CONVENTIONS §7).
@@ -39,5 +40,6 @@ export function registerRoutes(app: Hono) {
   app.route('/', adminAppointmentItems) // T-16
   app.route('/', adminStaffItems) // TRACK-A: G0 upcoming-items guard
   app.route('/', combo) // R1a — serial combo (customer multi-select)
+  app.route('/', adminOverview) // Track C — R5 occupancy + R2 revenue/payroll
   // các task sau thêm dòng của mình vào đây
 }
