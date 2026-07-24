@@ -75,10 +75,12 @@ test.describe('Thiết lập — Nhân viên', () => {
       .locator('.ccf-su-check-item')
       .filter({ hasText: skillName })
       .locator('input[type="checkbox"]')
-    // Backend gán/bỏ gán là ghi thuần (không có endpoint đọc lại quan hệ hiện
-    // có — xem "Đã làm gì"), nên UI mở sheet với checkbox chưa đánh dấu. Tick
-    // rồi bỏ tick lại để khẳng định hành vi bỏ gán qua đúng API DELETE.
-    await checkbox.check()
+    // Mở sheet, UI nạp kỹ năng THẬT của nhân viên qua GET /staff/:id/skills
+    // (openStaffSheet). Skill đã gán sẵn ở trên nên sau khi tải xong ô phải tự
+    // tick. Chờ trạng thái đã-tải-xong (ô tick) TRƯỚC khi bỏ tick: nếu bỏ tick
+    // trong lúc GET còn treo (phản hồi chậm khi chạy song song), phản hồi ập về
+    // sau sẽ ghi đè set skill và tick lại ô — đỏ giả không liên quan hành vi bỏ
+    // gán. Chờ đến khi GET đã lắng rồi mới bỏ tick, khẳng định đúng API DELETE.
     await expect(checkbox).toBeChecked()
     await checkbox.uncheck()
     await expect(checkbox).not.toBeChecked()
