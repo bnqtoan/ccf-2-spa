@@ -39,6 +39,19 @@ export interface BookingResult {
   staff: { id: number; name: string } | null
 }
 
+/** R1a serial-combo availability. `coverable: false` = no single technician
+ * holds every skill the chosen combo needs — the "shown before commit" gate. */
+export interface ComboAvailability {
+  coverable: boolean
+  slots: AvailabilitySlot[]
+}
+
+export interface ComboBookingResult {
+  appointment: { id: number; [key: string]: unknown }
+  items: Array<{ id: number; [key: string]: unknown }>
+  staff: { id: number; name: string } | null
+}
+
 export interface ApiErrorBody {
   error: { code: string; message: string }
 }
@@ -97,4 +110,44 @@ export async function createBooking(payload: BookingPayload): Promise<BookingRes
   })
   if (!res.ok) return parseErrorAndThrow(res)
   return (await res.json()) as BookingResult
+}
+
+/**
+ * `POST /api/combo/availability` — R1a serial combo. Returns `coverable`
+ * (does any single technician hold every skill the chosen variants need?) plus
+ * the day's slots big enough for the whole chain. `coverable: false` is a
+ * legitimate answer, NOT an error — the UI shows it before the customer commits.
+ */
+export async function getComboAvailability(
+  variantIds: number[],
+  date: string,
+  staffId?: number,
+): Promise<ComboAvailability> {
+  const res = await fetch('/api/combo/availability', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ variant_ids: variantIds, date, ...(staffId !== undefined ? { staff_id: staffId } : {}) }),
+  })
+  if (!res.ok) return parseErrorAndThrow(res)
+  return (await res.json()) as ComboAvailability
+}
+
+export interface ComboBookingPayload {
+  customer: { name: string; phone: string }
+  variant_ids: number[]
+  start_at: number
+  staff_id?: number
+}
+
+/** `POST /api/combo/bookings` — creates ONE appointment with N serial items on
+ * one technician. Throws `ApiError` (STAFF_LACKS_SKILL / SLOT_TAKEN / …) which
+ * the UI translates; never leaks a raw code to the customer. */
+export async function createComboBooking(payload: ComboBookingPayload): Promise<ComboBookingResult> {
+  const res = await fetch('/api/combo/bookings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) return parseErrorAndThrow(res)
+  return (await res.json()) as ComboBookingResult
 }

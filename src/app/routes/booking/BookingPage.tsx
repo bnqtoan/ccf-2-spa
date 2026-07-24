@@ -9,10 +9,13 @@ import Pill from '../../components/Pill'
 import {
   ApiError,
   createBooking,
+  createComboBooking,
   getAvailability,
+  getComboAvailability,
   getServices,
   type AvailabilitySlot,
   type BookingResult,
+  type ComboBookingResult,
   type Service,
   type ServiceVariant,
 } from '../../lib/apiClient'
@@ -44,6 +47,25 @@ const SPA_PHONE_DISPLAY = '028 3822 1179'
 type StepName = 'service' | 'variant' | 'time' | 'confirm'
 const STEP_ORDER: StepName[] = ['service', 'variant', 'time', 'confirm']
 
+/** Một mục đã chọn trong giỏ combo: giữ đủ dữ liệu để hiện lại + tính tổng. */
+export interface BasketItem {
+  service: Service
+  variant: ServiceVariant
+}
+
+/** Tổng thời lượng (gồm buffer) và giá của cả chuỗi combo. */
+function basketTotals(basket: BasketItem[]): { totalMin: number; totalBlockMin: number; totalPrice: number } {
+  let totalMin = 0
+  let totalBlockMin = 0
+  let totalPrice = 0
+  for (const it of basket) {
+    totalMin += it.variant.duration_min
+    totalBlockMin += it.variant.duration_min + it.variant.buffer_after_min
+    totalPrice += it.variant.price
+  }
+  return { totalMin, totalBlockMin, totalPrice }
+}
+
 type Screen =
   | { name: 'service' }
   | { name: 'variant'; service: Service }
@@ -65,21 +87,42 @@ type Screen =
       staffId: number | null
       result: BookingResult
     }
+  // --- R1a serial combo (≥2 dịch vụ, 1 KTV, nối tiếp) ---
+  | { name: 'combo-time'; basket: BasketItem[] }
+  | { name: 'combo-confirm'; basket: BasketItem[]; dateStr: string; startAt: number; staffId: number | null }
+  | {
+      name: 'combo-done'
+      basket: BasketItem[]
+      dateStr: string
+      startAt: number
+      result: ComboBookingResult
+    }
 
 /** Khoá dữ liệu cần cho bước xác nhận — server luôn là trọng tài cuối
  * (CONVENTIONS + cạm bẫy đã biết của card), state này chỉ giữ lựa chọn của
  * khách để hiển thị lại, không tự quyết định hợp lệ hay không. */
 export default function BookingPage() {
   const [screen, setScreen] = useState<Screen>({ name: 'service' })
+  // Giỏ combo sống NGOÀI `screen` để giữ qua các lần quay lại chọn thêm dịch
+  // vụ. 1 mục = luồng đơn (giữ nguyên hành vi cũ); ≥2 mục = luồng combo nối
+  // tiếp. Bắt đầu rỗng — khách chọn dịch vụ đầu tiên mới đẩy vào.
+  const [basket, setBasket] = useState<BasketItem[]>([])
 
   const stepIndex = STEP_ORDER.indexOf(screen.name as StepName)
-  const showSteps = screen.name !== 'service' && screen.name !== 'done'
+  const showSteps = screen.name === 'variant' || screen.name === 'time' || screen.name === 'confirm'
+
+  function resetToStart() {
+    setBasket([])
+    setScreen({ name: 'service' })
+  }
 
   function goBack() {
     if (screen.name === 'variant') setScreen({ name: 'service' })
     else if (screen.name === 'time') setScreen({ name: 'variant', service: screen.service })
     else if (screen.name === 'confirm')
       setScreen({ name: 'time', service: screen.service, variant: screen.variant })
+    else if (screen.name === 'combo-time') setScreen({ name: 'service' })
+    else if (screen.name === 'combo-confirm') setScreen({ name: 'combo-time', basket: screen.basket })
   }
 
   let title = 'Sen Spa'
@@ -93,15 +136,28 @@ export default function BookingPage() {
   } else if (screen.name === 'confirm') {
     title = 'Xác nhận'
     sub = 'Kiểm tra lại thông tin'
-  } else if (screen.name === 'done') {
+  } else if (screen.name === 'combo-time') {
+    title = 'Chọn ngày & giờ'
+    sub = `Combo ${screen.basket.length} dịch vụ · 1 kỹ thuật viên`
+  } else if (screen.name === 'combo-confirm') {
+    title = 'Xác nhận'
+    sub = `Combo ${screen.basket.length} dịch vụ`
+  } else if (screen.name === 'done' || screen.name === 'combo-done') {
     title = 'Đã đặt lịch'
     sub = ''
   }
 
+  const canGoBack =
+    screen.name === 'variant' ||
+    screen.name === 'time' ||
+    screen.name === 'confirm' ||
+    screen.name === 'combo-time' ||
+    screen.name === 'combo-confirm'
+
   return (
     <div className="ccf-bk-page">
       <div className="ccf-bk-bar">
-        {screen.name !== 'service' && screen.name !== 'done' && (
+        {canGoBack && (
           <button className="ccf-bk-iconbtn" onClick={goBack} aria-label="Quay lại">
             ←
           </button>
@@ -120,12 +176,38 @@ export default function BookingPage() {
       )}
       <main className="ccf-bk-main">
         {screen.name === 'service' && (
-          <ServiceScreen onPick={(service) => setScreen({ name: 'variant', service })} />
+          <ServiceScreen
+            basket={basket}
+            onPick={(service) => setScreen({ name: 'variant', service })}
+            onRemoveFromBasket={(variantId) => setBasket((b) => b.filter((it) => it.variant.id !== variantId))}
+            onContinueCombo={() => setScreen({ name: 'combo-time', basket })}
+          />
         )}
         {screen.name === 'variant' && (
           <VariantScreen
             service={screen.service}
-            onContinue={(variant) => setScreen({ name: 'time', service: screen.service, variant })}
+            basket={basket}
+            onContinue={(variant) => {
+              // 1 dịch vụ trong giỏ (kể cả vừa thêm) → luồng đơn như cũ.
+              // Nếu giỏ đã có sẵn dịch vụ khác → thành combo, ra màn combo.
+              const others = basket.filter((it) => it.variant.id !== variant.id)
+              if (others.length === 0) {
+                setBasket([{ service: screen.service, variant }])
+                setScreen({ name: 'time', service: screen.service, variant })
+              } else {
+                const next = [...others, { service: screen.service, variant }]
+                setBasket(next)
+                setScreen({ name: 'combo-time', basket: next })
+              }
+            }}
+            onAddMore={(variant) => {
+              // Thêm dịch vụ này vào giỏ rồi quay lại danh sách để chọn tiếp.
+              setBasket((b) => {
+                const others = b.filter((it) => it.variant.id !== variant.id)
+                return [...others, { service: screen.service, variant }]
+              })
+              setScreen({ name: 'service' })
+            }}
           />
         )}
         {screen.name === 'time' && (
@@ -175,7 +257,36 @@ export default function BookingPage() {
             startAt={screen.startAt}
             staffId={screen.staffId}
             result={screen.result}
-            onHome={() => setScreen({ name: 'service' })}
+            onHome={resetToStart}
+          />
+        )}
+        {screen.name === 'combo-time' && (
+          <ComboTimeScreen
+            basket={screen.basket}
+            onContinue={(dateStr, startAt, staffId) =>
+              setScreen({ name: 'combo-confirm', basket: screen.basket, dateStr, startAt, staffId })
+            }
+          />
+        )}
+        {screen.name === 'combo-confirm' && (
+          <ComboConfirmScreen
+            basket={screen.basket}
+            dateStr={screen.dateStr}
+            startAt={screen.startAt}
+            staffId={screen.staffId}
+            onSlotTaken={() => setScreen({ name: 'combo-time', basket: screen.basket })}
+            onDone={(result) =>
+              setScreen({ name: 'combo-done', basket: screen.basket, dateStr: screen.dateStr, startAt: screen.startAt, result })
+            }
+          />
+        )}
+        {screen.name === 'combo-done' && (
+          <ComboDoneScreen
+            basket={screen.basket}
+            dateStr={screen.dateStr}
+            startAt={screen.startAt}
+            result={screen.result}
+            onHome={resetToStart}
           />
         )}
       </main>
@@ -187,7 +298,17 @@ export default function BookingPage() {
 // 1. Danh sách dịch vụ
 // ---------------------------------------------------------------------------
 
-function ServiceScreen({ onPick }: { onPick: (service: Service) => void }) {
+function ServiceScreen({
+  basket,
+  onPick,
+  onRemoveFromBasket,
+  onContinueCombo,
+}: {
+  basket: BasketItem[]
+  onPick: (service: Service) => void
+  onRemoveFromBasket: (variantId: number) => void
+  onContinueCombo: () => void
+}) {
   const [services, setServices] = useState<Service[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   // "all" = không lọc. Danh sách chip suy ra từ chính dữ liệu services trả
@@ -211,11 +332,12 @@ function ServiceScreen({ onPick }: { onPick: (service: Service) => void }) {
 
   const zones = Array.from(new Set((services ?? []).map((s) => s.body_zone)))
   const visibleServices = (services ?? []).filter((s) => zoneFilter === 'all' || s.body_zone === zoneFilter)
+  const { totalPrice, totalMin } = basketTotals(basket)
 
   return (
     <>
       <div className="ccf-bk-h2">Bạn muốn làm gì hôm nay?</div>
-      <p className="ccf-bk-lede">Chọn dịch vụ, chúng tôi sắp kỹ thuật viên phù hợp.</p>
+      <p className="ccf-bk-lede">Chọn dịch vụ, chúng tôi sắp kỹ thuật viên phù hợp. Muốn làm nhiều dịch vụ trong một buổi? Cứ chọn thêm.</p>
       {error && <Notice tone="warn">{error}</Notice>}
       {services === null && !error && <p>Đang tải...</p>}
 
@@ -250,6 +372,7 @@ function ServiceScreen({ onPick }: { onPick: (service: Service) => void }) {
         {visibleServices.map((s) => {
           const fromPrice = Math.min(...s.variants.map((v) => v.price))
           const totalMin = Math.min(...s.variants.map((v) => v.duration_min))
+          const inBasket = basket.some((it) => it.service.id === s.id)
           return (
             <button
               key={s.id}
@@ -267,7 +390,7 @@ function ServiceScreen({ onPick }: { onPick: (service: Service) => void }) {
                 <div className="ccf-bk-svc-foot">
                   <span className="ccf-bk-svc-price">từ {formatVnd(fromPrice)}</span>
                   <span className="ccf-bk-svc-plus" aria-hidden="true">
-                    +
+                    {inBasket ? '✓' : '+'}
                   </span>
                 </div>
               </div>
@@ -275,6 +398,39 @@ function ServiceScreen({ onPick }: { onPick: (service: Service) => void }) {
           )
         })}
       </div>
+
+      {/* Giỏ combo: chỉ hiện khi đã chọn ≥1 dịch vụ. Cho xoá từng mục (revise)
+          và đi tiếp. Đây là affordance "chọn nhiều dịch vụ trong một buổi". */}
+      {basket.length > 0 && (
+        <div className="ccf-bk-combobar" data-testid="combo-basket">
+          <div className="ccf-bk-combobar-list">
+            {basket.map((it) => (
+              <div key={it.variant.id} className="ccf-bk-combobar-item" data-testid={`basket-item-${it.variant.id}`}>
+                <span className="ccf-bk-combobar-nm">
+                  {it.service.name} · {it.variant.name}
+                </span>
+                <button
+                  type="button"
+                  className="ccf-bk-combobar-x"
+                  aria-label={`Bỏ ${it.service.name}`}
+                  onClick={() => onRemoveFromBasket(it.variant.id)}
+                  data-testid={`basket-remove-${it.variant.id}`}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="ccf-bk-combobar-foot">
+            <span className="ccf-bk-combobar-total">
+              {basket.length} dịch vụ · {totalMin} phút · {formatVnd(totalPrice)}
+            </span>
+          </div>
+          <Button onClick={onContinueCombo} data-testid="combo-continue">
+            {basket.length >= 2 ? `Đặt combo ${basket.length} dịch vụ` : 'Tiếp tục'}
+          </Button>
+        </div>
+      )}
     </>
   )
 }
@@ -285,12 +441,19 @@ function ServiceScreen({ onPick }: { onPick: (service: Service) => void }) {
 
 function VariantScreen({
   service,
+  basket,
   onContinue,
+  onAddMore,
 }: {
   service: Service
+  basket: BasketItem[]
   onContinue: (variant: ServiceVariant) => void
+  onAddMore: (variant: ServiceVariant) => void
 }) {
-  const [selected, setSelected] = useState<ServiceVariant | null>(null)
+  // Nếu dịch vụ này đã có trong giỏ, chọn sẵn đúng gói đó (khách quay lại sửa).
+  const preselected = basket.find((it) => it.service.id === service.id)?.variant ?? null
+  const [selected, setSelected] = useState<ServiceVariant | null>(preselected)
+  const hasOthers = basket.some((it) => it.service.id !== service.id)
 
   return (
     <>
@@ -313,12 +476,22 @@ function VariantScreen({
         </Card>
       ))}
       <div className="ccf-bk-dock">
+        {/* "Thêm dịch vụ khác" giữ khách ở lại luồng chọn để gộp combo. Nút
+            chính "Tiếp tục" đưa thẳng tới chọn giờ (đơn hoặc combo tuỳ giỏ). */}
+        <Button
+          variant="ghost"
+          disabled={selected === null}
+          onClick={() => selected && onAddMore(selected)}
+          data-testid="variant-add-more"
+        >
+          + Thêm dịch vụ khác
+        </Button>
         <Button
           disabled={selected === null}
           onClick={() => selected && onContinue(selected)}
           data-testid="variant-continue"
         >
-          Tiếp tục
+          {hasOthers ? 'Tiếp tục với combo' : 'Tiếp tục'}
         </Button>
       </div>
     </>
@@ -670,6 +843,385 @@ function DoneScreen({
         <div className="ccf-bk-sline ccf-bk-sline--total">
           <span className="ccf-bk-k">Thanh toán tại spa</span>
           <span className="ccf-bk-v">{formatVnd(variant.price)}</span>
+        </div>
+      </div>
+      <Notice tone="info">
+        Vui lòng đến sớm 5 phút. Cần đổi lịch, gọi <b>{SPA_PHONE_DISPLAY}</b>.
+      </Notice>
+      <div className="ccf-bk-dock">
+        <Button variant="ghost" onClick={onHome} data-testid="done-home">
+          Về trang chủ
+        </Button>
+      </div>
+    </>
+  )
+}
+
+// ===========================================================================
+// R1a — SERIAL COMBO screens (≥2 dịch vụ, 1 KTV, nối tiếp)
+// ===========================================================================
+
+// 6. Combo — chọn ngày + giờ. Điểm mấu chốt của playbook: RÀNG BUỘC HIỆN
+// TRƯỚC khi khách cam kết. Slot chỉ hiện khi CÙNG MỘT KTV làm được TRỌN combo
+// và có một cửa sổ liền đủ dài. Nếu không KTV nào đủ kỹ năng cho cả combo →
+// báo rõ ngay tại đây ("chưa có kỹ thuật viên nào làm được trọn combo này"),
+// gợi ý tách 2 lần đặt — KHÔNG để khách đi tới bước xác nhận rồi mới lỗi.
+function ComboTimeScreen({
+  basket,
+  onContinue,
+}: {
+  basket: BasketItem[]
+  onContinue: (dateStr: string, startAt: number, staffId: number | null) => void
+}) {
+  const days = useMemo(() => next14Days(), [])
+  const variantIds = useMemo(() => basket.map((it) => it.variant.id), [basket])
+  const [dateStr, setDateStr] = useState(days[0] ?? '')
+  const [slots, setSlots] = useState<AvailabilitySlot[] | null>(null)
+  const [coverable, setCoverable] = useState<boolean>(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedStartAt, setSelectedStartAt] = useState<number | null>(null)
+  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null)
+
+  const { totalPrice, totalMin, totalBlockMin } = basketTotals(basket)
+
+  useEffect(() => {
+    let cancelled = false
+    setSlots(null)
+    setError(null)
+    setSelectedStartAt(null)
+    setSelectedStaffId(null)
+    getComboAvailability(variantIds, dateStr)
+      .then((res) => {
+        if (cancelled) return
+        setCoverable(res.coverable)
+        setSlots(res.slots)
+      })
+      .catch(() => {
+        if (!cancelled) setError('Không tải được khung giờ. Vui lòng thử lại.')
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateStr, variantIds.join(',')])
+
+  const grouped = useMemo(() => {
+    const groups: Record<'Buổi sáng' | 'Buổi chiều' | 'Buổi tối', AvailabilitySlot[]> = {
+      'Buổi sáng': [],
+      'Buổi chiều': [],
+      'Buổi tối': [],
+    }
+    for (const slot of slots ?? []) groups[dayPartOf(slot.start_at)].push(slot)
+    return groups
+  }, [slots])
+
+  const chosenSlot = selectedStartAt !== null ? (slots ?? []).find((s) => s.start_at === selectedStartAt) : null
+  const canContinue = selectedStartAt !== null
+
+  return (
+    <>
+      {/* Tóm tắt combo luôn hiện: khách thấy rõ mình đang đặt gì + tổng thời
+          gian/giá trước khi chọn giờ. */}
+      <div className="ccf-bk-summary" data-testid="combo-time-summary">
+        {basket.map((it) => (
+          <div key={it.variant.id} className="ccf-bk-sline">
+            <span className="ccf-bk-k">
+              {it.service.name} · {it.variant.name}
+            </span>
+            <span className="ccf-bk-v">{it.variant.duration_min} phút</span>
+          </div>
+        ))}
+        <div className="ccf-bk-sline ccf-bk-sline--total">
+          <span className="ccf-bk-k">Tổng · làm liền mạch 1 KTV</span>
+          <span className="ccf-bk-v">
+            {totalMin} phút · {formatVnd(totalPrice)}
+          </span>
+        </div>
+      </div>
+
+      <div className="ccf-bk-dates">
+        {days.map((d, i) => (
+          <button
+            key={d}
+            type="button"
+            className={`ccf-bk-date ${dateStr === d ? 'ccf-bk-date--sel' : ''}`}
+            onClick={() => setDateStr(d)}
+            data-testid={`date-${d}`}
+          >
+            <div className="ccf-bk-dw">{dateChipLabel(d, i === 0)}</div>
+            <div className="ccf-bk-dd">{dayOfMonth(d)}</div>
+          </button>
+        ))}
+      </div>
+
+      {error && <Notice tone="warn">{error}</Notice>}
+
+      {/* RÀNG BUỘC HIỆN TRƯỚC: không KTV nào làm được trọn combo. Thông điệp
+          dễ hiểu, gợi ý cách xử lý — không phải lỗi kỹ thuật. */}
+      {slots !== null && !coverable && (
+        <Notice tone="warn" data-testid="combo-uncoverable">
+          <b>Chưa có kỹ thuật viên nào làm được trọn combo này.</b> Các dịch vụ bạn chọn cần những kỹ năng khác
+          nhau mà chưa ai làm được cả. Bạn có thể bớt một dịch vụ, hoặc đặt riêng từng dịch vụ (mỗi lần một kỹ
+          thuật viên), hoặc gọi {SPA_PHONE_DISPLAY} để được sắp xếp.
+        </Notice>
+      )}
+
+      {slots !== null && coverable && slots.length === 0 && (
+        <EmptyState
+          icon="🗓️"
+          text="Ngày này không có khung giờ đủ dài cho cả combo. Bạn thử ngày khác nhé."
+          data-testid="combo-time-empty"
+        />
+      )}
+
+      {(Object.entries(grouped) as [string, AvailabilitySlot[]][])
+        .filter(([, v]) => v.length > 0)
+        .map(([part, partSlots]) => (
+          <div key={part}>
+            <div className="ccf-bk-daypart">{part}</div>
+            <div className="ccf-bk-slots">
+              {partSlots.map((s) => (
+                <button
+                  key={s.start_at}
+                  type="button"
+                  className={`ccf-bk-slot ${selectedStartAt === s.start_at ? 'ccf-bk-slot--sel' : ''}`}
+                  onClick={() => {
+                    setSelectedStartAt(s.start_at)
+                    setSelectedStaffId(null)
+                  }}
+                  data-testid={`slot-${s.start_at}`}
+                >
+                  {hm(s.start_at)}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+
+      {chosenSlot && (
+        <>
+          <div className="ccf-bk-label">Kỹ thuật viên</div>
+          <p className="ccf-bk-d" style={{ marginBottom: 10 }}>
+            Cả combo do một người làm liền mạch (~{totalBlockMin} phút kể cả nghỉ giữa các bước).
+          </p>
+          <Card selected={selectedStaffId === null} onClick={() => setSelectedStaffId(null)} data-testid="staff-auto">
+            <div className="ccf-bk-row">
+              <div>
+                <div className="ccf-bk-t">Để spa sắp xếp</div>
+                <div className="ccf-bk-d">Chọn bạn làm được cả combo và đang rảnh</div>
+              </div>
+              <Pill>Gợi ý</Pill>
+            </div>
+          </Card>
+          {chosenSlot.staff_ids.map((staffId) => (
+            <Card
+              key={staffId}
+              selected={selectedStaffId === staffId}
+              onClick={() => setSelectedStaffId(staffId)}
+              data-testid={`staff-${staffId}`}
+            >
+              <div className="ccf-bk-staffpick">
+                <Avatar name={`KTV ${staffId}`} />
+                <div className="ccf-bk-nm">Kỹ thuật viên #{staffId}</div>
+              </div>
+            </Card>
+          ))}
+        </>
+      )}
+
+      <div className="ccf-bk-dock">
+        <Button
+          disabled={!canContinue}
+          onClick={() => {
+            if (selectedStartAt === null) return
+            onContinue(dateStr, selectedStartAt, selectedStaffId)
+          }}
+          data-testid="combo-time-continue"
+        >
+          {selectedStartAt !== null ? `Tiếp tục · ${hm(selectedStartAt)}` : 'Chọn giờ để tiếp tục'}
+        </Button>
+      </div>
+    </>
+  )
+}
+
+// 7. Combo — xác nhận. Hiện lịch trình nối tiếp từng bước (giờ bắt đầu mỗi
+// dịch vụ) để khách thấy rõ trình tự trước khi cam kết.
+function ComboConfirmScreen({
+  basket,
+  dateStr,
+  startAt,
+  staffId,
+  onSlotTaken,
+  onDone,
+}: {
+  basket: BasketItem[]
+  dateStr: string
+  startAt: number
+  staffId: number | null
+  onSlotTaken: () => void
+  onDone: (result: ComboBookingResult) => void
+}) {
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const nameValid = name.trim().length > 1
+  const phoneValid = phone.replace(/\D/g, '').length >= 9
+  const canSubmit = nameValid && phoneValid && !submitting
+
+  const { totalPrice } = basketTotals(basket)
+
+  // Lịch trình nối tiếp: bắt đầu tại startAt, mỗi bước bắt đầu sau block
+  // (duration+buffer) của bước trước — khớp layoutChain ở server.
+  const schedule = useMemo(() => {
+    let cursor = startAt
+    return basket.map((it) => {
+      const start = cursor
+      const end = start + it.variant.duration_min * 60
+      cursor = end + it.variant.buffer_after_min * 60
+      return { it, start, end }
+    })
+  }, [basket, startAt])
+
+  async function handleSubmit() {
+    if (!canSubmit) return
+    setSubmitting(true)
+    setNotice(null)
+    try {
+      const result = await createComboBooking({
+        customer: { name: name.trim(), phone: phone.trim() },
+        variant_ids: basket.map((it) => it.variant.id),
+        start_at: startAt,
+        ...(staffId !== null ? { staff_id: staffId } : {}),
+      })
+      onDone(result)
+    } catch (err) {
+      if (err instanceof ApiError && (err.code === 'SLOT_TAKEN' || err.code === 'STAFF_LACKS_SKILL')) {
+        // Chỗ vừa bị chiếm, hoặc KTV được chọn không còn làm được trọn combo:
+        // quay về bước chọn giờ với danh sách mới — không hiện mã lỗi thô.
+        onSlotTaken()
+        return
+      }
+      setNotice(
+        `Rất tiếc, chúng tôi chưa đặt được combo này. Bạn thử lại giúp mình nhé, hoặc gọi ${SPA_PHONE_DISPLAY} để được hỗ trợ.`,
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="ccf-bk-h2">Gần xong rồi</div>
+      <p className="ccf-bk-lede">Cả combo do một kỹ thuật viên làm liền mạch. Kiểm tra lại trình tự nhé.</p>
+      <div className="ccf-bk-summary" data-testid="combo-confirm-summary">
+        <div className="ccf-bk-sline">
+          <span className="ccf-bk-k">Ngày</span>
+          <span className="ccf-bk-v">{fullDateLabel(dateStr)}</span>
+        </div>
+        {schedule.map(({ it, start, end }) => (
+          <div key={it.variant.id} className="ccf-bk-sline">
+            <span className="ccf-bk-k">
+              {it.service.name} · {it.variant.name}
+            </span>
+            <span className="ccf-bk-v">
+              {hm(start)} – {hm(end)}
+            </span>
+          </div>
+        ))}
+        <div className="ccf-bk-sline">
+          <span className="ccf-bk-k">Kỹ thuật viên</span>
+          <span className="ccf-bk-v">{staffId !== null ? `Kỹ thuật viên #${staffId}` : 'Spa sắp xếp'}</span>
+        </div>
+        <div className="ccf-bk-sline ccf-bk-sline--total">
+          <span className="ccf-bk-k">Tổng cộng</span>
+          <span className="ccf-bk-v">{formatVnd(totalPrice)}</span>
+        </div>
+      </div>
+
+      <Field
+        label="Tên của bạn"
+        placeholder="Ví dụ: Nguyễn Thu Hà"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        data-testid="confirm-name"
+      />
+      <Field
+        label="Số điện thoại"
+        type="tel"
+        inputMode="numeric"
+        placeholder="0901 234 567"
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+        hint="Dùng để tra cứu và đổi lịch. Không cần tạo tài khoản."
+        data-testid="confirm-phone"
+      />
+
+      <Notice tone="info">
+        <b>Thanh toán tại spa.</b> Bạn có thể huỷ miễn phí đến trước giờ hẹn 2 tiếng.
+      </Notice>
+
+      {notice && (
+        <Notice tone="warn" data-testid="confirm-error">
+          {notice}
+        </Notice>
+      )}
+
+      <div className="ccf-bk-dock">
+        <Button disabled={!canSubmit} onClick={handleSubmit} data-testid="confirm-submit">
+          {submitting ? 'Đang xử lý...' : 'Xác nhận đặt combo'}
+        </Button>
+      </div>
+    </>
+  )
+}
+
+// 8. Combo — thành công.
+function ComboDoneScreen({
+  basket,
+  dateStr,
+  startAt,
+  result,
+  onHome,
+}: {
+  basket: BasketItem[]
+  dateStr: string
+  startAt: number
+  result: ComboBookingResult
+  onHome: () => void
+}) {
+  const isToday = dateStr === dateStrOf(Math.floor(Date.now() / 1000))
+  const staffName = result.staff?.name ?? 'Spa sắp xếp'
+  const { totalPrice } = basketTotals(basket)
+
+  return (
+    <>
+      <div className="ccf-bk-ok">
+        <div className="ccf-bk-mark">✓</div>
+        <h2>Đặt combo thành công</h2>
+        <p>
+          Hẹn gặp bạn {isToday ? 'hôm nay' : `ngày ${fullDateLabel(dateStr)}`} lúc <b>{hm(startAt)}</b>
+        </p>
+        <div className="ccf-bk-code" data-testid="booking-code">
+          MÃ ĐẶT LỊCH · {result.appointment.id}
+        </div>
+      </div>
+      <div className="ccf-bk-summary">
+        {basket.map((it) => (
+          <div key={it.variant.id} className="ccf-bk-sline">
+            <span className="ccf-bk-k">{it.service.name}</span>
+            <span className="ccf-bk-v">{it.variant.name}</span>
+          </div>
+        ))}
+        <div className="ccf-bk-sline">
+          <span className="ccf-bk-k">Kỹ thuật viên</span>
+          <span className="ccf-bk-v">{staffName}</span>
+        </div>
+        <div className="ccf-bk-sline ccf-bk-sline--total">
+          <span className="ccf-bk-k">Thanh toán tại spa</span>
+          <span className="ccf-bk-v">{formatVnd(totalPrice)}</span>
         </div>
       </div>
       <Notice tone="info">
