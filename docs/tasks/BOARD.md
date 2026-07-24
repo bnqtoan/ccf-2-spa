@@ -33,6 +33,7 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-14 | E2E Playwright: 5 luồng đầu-cuối | done | codex | T-10..T-13 |
 | T-15 | Deploy: worker live + D1 remote migrated | done | sonnet | T-14 |
 | T-16 | Ba endpoint PRD §9 bị bỏ sót | done | sonnet | T-07 |
+| T-17 | UI Thiết lập (nhân viên/skill/dịch vụ/ca) | done | sonnet | T-06, T-09 |
 
 ## Thứ tự chạy
 

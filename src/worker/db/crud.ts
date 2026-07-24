@@ -33,6 +33,17 @@ export async function listStaff(db: D1Database): Promise<Staff[]> {
   return result.results
 }
 
+/** Skill IDs hiện gán cho một nhân viên — để UI hiển thị đúng trạng thái đã
+ * gán thay vì mở checkbox trống. Endpoint đọc này thiếu ở T-06 (chỉ có write),
+ * bổ sung cho T-17. */
+export async function listStaffSkillIds(db: D1Database, staffId: number): Promise<number[]> {
+  const result = await db
+    .prepare('SELECT skill_id FROM staff_skills WHERE staff_id = ? ORDER BY skill_id')
+    .bind(staffId)
+    .all<{ skill_id: number }>()
+  return result.results.map((r) => r.skill_id)
+}
+
 export async function createStaff(db: D1Database, name: string, phone: string | null): Promise<Staff> {
   return (await db
     .prepare('INSERT INTO staff (name, phone) VALUES (?, ?) RETURNING id, name, phone, active')

@@ -65,6 +65,11 @@ routes.delete('/api/admin/skills/:id', async (c) => {
 })
 
 routes.get('/api/admin/staff', async (c) => c.json(await crud.listStaff(c.env.DB)))
+routes.get('/api/admin/staff/:id/skills', async (c) => {
+  const staffId = id(c.req.param('id'))
+  if (!staffId) return error(c, 422, 'VALIDATION', 'invalid staff id')
+  return c.json({ skill_ids: await crud.listStaffSkillIds(c.env.DB, staffId) })
+})
 routes.post('/api/admin/staff', async (c) => {
   const body = await json(c)
   if (!body || !text(body.name) || (body.phone !== undefined && body.phone !== null && typeof body.phone !== 'string')) {

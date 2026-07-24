@@ -157,6 +157,24 @@ describe('admin CRUD', () => {
     expect(available.slots.some((slot) => slot.staff_ids.includes(staff.id))).toBe(false)
   })
 
+  it('đọc lại skill của một staff trả đúng các skill đã gán', async () => {
+    const s1 = await (await post('/api/admin/skills', { name: 'Massage' })).json() as { id: number }
+    const s2 = await (await post('/api/admin/skills', { name: 'Da mặt' })).json() as { id: number }
+    const staff = await (await post('/api/admin/staff', { name: 'Yến' })).json() as { id: number }
+    // mới tạo: chưa có skill nào
+    let got = await (await api(`/api/admin/staff/${staff.id}/skills`)).json() as { skill_ids: number[] }
+    expect(got.skill_ids).toEqual([])
+    // gán 2 skill rồi đọc lại
+    await post(`/api/admin/staff/${staff.id}/skills`, { skill_id: s1.id })
+    await post(`/api/admin/staff/${staff.id}/skills`, { skill_id: s2.id })
+    got = await (await api(`/api/admin/staff/${staff.id}/skills`)).json() as { skill_ids: number[] }
+    expect(got.skill_ids.sort()).toEqual([s1.id, s2.id].sort())
+    // bỏ gán một cái thì đọc lại chỉ còn cái kia
+    await api(`/api/admin/staff/${staff.id}/skills/${s1.id}`, { method: 'DELETE' })
+    got = await (await api(`/api/admin/staff/${staff.id}/skills`)).json() as { skill_ids: number[] }
+    expect(got.skill_ids).toEqual([s2.id])
+  })
+
   it('sửa staff không tồn tại trả 404 NOT_FOUND', async () => {
     const response = await patch('/api/admin/staff/99999', { name: 'Không có' })
     expect(response.status).toBe(404)

@@ -7,6 +7,7 @@ import ComponentsDemo from './components/ComponentsDemo'
 import LookupPage from './routes/lookup/LookupPage'
 import TimelinePage from './routes/admin/timeline/TimelinePage'
 import ReassignQueuePage from './routes/admin/reassign/ReassignQueuePage'
+import SetupPage from './routes/admin/setup/SetupPage'
 import './styles/tokens.css'
 
 const root = document.getElementById('root')
@@ -22,6 +23,7 @@ createRoot(root).render(
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/timeline" element={<TimelinePage />} />
         <Route path="/admin/reassign" element={<ReassignQueuePage />} />
+        <Route path="/admin/setup" element={<SetupPage />} />
         <Route path="/lookup" element={<LookupPage />} />
         <Route path="/dev/components" element={<ComponentsDemo />} />
       </Routes>

@@ -20,6 +20,12 @@ const CARDS = [
     desc: 'Các lịch bị ảnh hưởng khi kỹ thuật viên nghỉ đột xuất — gọi khách và chuyển người.',
   },
   {
+    to: '/admin/setup',
+    icon: '⚙️',
+    title: 'Thiết lập',
+    desc: 'Quản lý nhân viên, kỹ năng, dịch vụ, gói và ca làm việc.',
+  },
+  {
     to: '/',
     icon: '🌿',
     title: 'Trang đặt lịch của khách',
