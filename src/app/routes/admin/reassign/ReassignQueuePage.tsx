@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import AdminNav from '../../../components/AdminNav'
 import Button from '../../../components/Button'
 import EmptyState from '../../../components/EmptyState'
 import Notice from '../../../components/Notice'
@@ -64,6 +65,7 @@ export default function ReassignQueuePage() {
 
   return (
     <div className="ccf-rq-page">
+      <AdminNav />
       <div className="ccf-rq-title">Hàng chờ xếp lại</div>
 
       {error && <Notice tone="warn">{error}</Notice>}

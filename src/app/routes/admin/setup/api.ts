@@ -117,6 +117,25 @@ export const updateStaff = (
   patch: { name?: string; phone?: string | null; active?: boolean },
 ): Promise<Staff> => sendJson(`/api/admin/staff/${id}`, 'PATCH', patch)
 
+/** Một booking sắp tới mà một nhân viên còn đang giữ (status booked/in_service,
+ * block chưa trôi qua) — dùng để CHẶN thao tác "Cho ngưng làm" trước khi nó
+ * giấu mất khách một cách âm thầm (G0). */
+export interface UpcomingItem {
+  item_id: number
+  start_at: number
+  end_at: number
+  block_end_at: number
+  status: string
+  customer_name: string
+  service_name: string
+  variant_name: string
+}
+
+/** `GET /api/admin/staff/:id/upcoming-items` — lịch sắp tới nhân viên còn giữ.
+ * Rỗng nghĩa là cho ngưng làm được an toàn; không rỗng thì phải "Báo nghỉ". */
+export const getUpcomingItems = (staffId: number): Promise<UpcomingItem[]> =>
+  getJson<{ items: UpcomingItem[] }>(`/api/admin/staff/${staffId}/upcoming-items`).then((r) => r.items)
+
 /** Skill IDs hiện gán cho một nhân viên — để mở sheet với đúng ô đã tick,
  * thay vì dựng trạng thái mù theo thao tác. Backend bổ sung endpoint đọc này
  * sau T-06 (ban đầu chỉ có write). */
