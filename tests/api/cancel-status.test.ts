@@ -2,6 +2,7 @@ import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
 import { localDayBounds, localToEpoch, weekdayOf } from '../../src/worker/lib/time.ts'
+import { adminCookieHeader } from './_authCookie.ts'
 
 const db = env.DB
 
@@ -134,6 +135,7 @@ async function cancelBooking(itemId: number): Promise<{ status: number; body: an
 async function adminCancel(itemId: number): Promise<{ status: number; body: any }> {
   const res = await exports.default.fetch(`https://example.com/api/admin/bookings/${itemId}/cancel`, {
     method: 'POST',
+    headers: { cookie: await adminCookieHeader() },
   })
   return { status: res.status, body: await res.json() }
 }
@@ -141,7 +143,7 @@ async function adminCancel(itemId: number): Promise<{ status: number; body: any 
 async function adminSetStatus(itemId: number, status: unknown): Promise<{ status: number; body: any }> {
   const res = await exports.default.fetch(`https://example.com/api/admin/bookings/${itemId}/status`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie: await adminCookieHeader() },
     body: JSON.stringify({ status }),
   })
   return { status: res.status, body: await res.json() }

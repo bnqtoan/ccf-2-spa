@@ -2,6 +2,7 @@ import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
 import { localDayBounds } from '../../src/worker/lib/time.ts'
+import { adminCookieHeader } from './_authCookie.ts'
 
 const db = env.DB
 
@@ -125,7 +126,7 @@ async function insertItem(
 async function postItem(appointmentId: number | string, body: unknown): Promise<{ status: number; body: any }> {
   const res = await exports.default.fetch(`https://example.com/api/admin/appointments/${appointmentId}/items`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie: await adminCookieHeader() },
     body: JSON.stringify(body),
   })
   return { status: res.status, body: await res.json() }

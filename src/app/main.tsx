@@ -9,6 +9,8 @@ import TimelinePage from './routes/admin/timeline/TimelinePage'
 import ReassignQueuePage from './routes/admin/reassign/ReassignQueuePage'
 import SetupPage from './routes/admin/setup/SetupPage'
 import OverviewPage from './routes/admin/overview/OverviewPage'
+import LoginPage from './routes/admin/auth/LoginPage'
+import RequireAuth from './routes/admin/auth/RequireAuth'
 import './styles/tokens.css'
 
 const root = document.getElementById('root')
@@ -21,11 +23,13 @@ createRoot(root).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<GuestPage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="/admin/overview" element={<OverviewPage />} />
-        <Route path="/admin/timeline" element={<TimelinePage />} />
-        <Route path="/admin/reassign" element={<ReassignQueuePage />} />
-        <Route path="/admin/setup" element={<SetupPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        {/* T-19 — mọi route /admin/* qua guard: chưa đăng nhập → /login */}
+        <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
+        <Route path="/admin/overview" element={<RequireAuth><OverviewPage /></RequireAuth>} />
+        <Route path="/admin/timeline" element={<RequireAuth><TimelinePage /></RequireAuth>} />
+        <Route path="/admin/reassign" element={<RequireAuth><ReassignQueuePage /></RequireAuth>} />
+        <Route path="/admin/setup" element={<RequireAuth><SetupPage /></RequireAuth>} />
         <Route path="/lookup" element={<LookupPage />} />
         <Route path="/dev/components" element={<ComponentsDemo />} />
       </Routes>

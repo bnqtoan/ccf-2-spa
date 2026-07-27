@@ -1,0 +1,79 @@
+/* T-19 — trang đăng nhập admin. Tối giản, dùng token màu chung của app. */
+.ccf-login {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: var(--bg, #faf8ff);
+}
+
+.ccf-login-card {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 28px 24px;
+  border-radius: var(--r, 16px);
+  background: var(--white, #fff);
+  border: 1.5px solid var(--line, #ece6fb);
+  box-shadow: 0 4px 20px rgba(59, 31, 115, 0.08);
+}
+
+.ccf-login-card h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink, #2b1a52);
+  margin: 0;
+}
+.ccf-login-card p {
+  color: var(--ink-2, #6b6482);
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+.ccf-login-card label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2, #6b6482);
+}
+
+.ccf-login-card input {
+  min-height: var(--tap, 44px);
+  padding: 10px 12px;
+  font-size: 16px;
+  border-radius: var(--r-sm, 10px);
+  border: 1.5px solid var(--line, #ece6fb);
+  background: var(--white, #fff);
+  color: var(--ink, #2b1a52);
+}
+.ccf-login-card input:focus {
+  outline: none;
+  border-color: var(--brand, #7c4dff);
+}
+
+.ccf-login-error {
+  font-size: 14px;
+  color: var(--danger, #d02f5b);
+  background: var(--danger-bg, #fdeef2);
+  border-radius: var(--r-sm, 10px);
+  padding: 8px 10px;
+}
+
+.ccf-login-card button {
+  margin-top: 6px;
+  min-height: var(--tap, 44px);
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--brand, #7c4dff);
+  border: none;
+  border-radius: var(--r-sm, 10px);
+  cursor: pointer;
+}
+.ccf-login-card button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

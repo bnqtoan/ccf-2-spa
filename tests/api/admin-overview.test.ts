@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migration1 from '../../migrations/0001_init.sql?raw'
 import migration2 from '../../migrations/0002_commission_tax.sql?raw'
 import { localDayBounds, minutesToEpoch, weekdayOf } from '../../src/worker/lib/time.ts'
+import { adminCookieHeader } from './_authCookie.ts'
 
 const db = env.DB
 
@@ -118,7 +119,9 @@ async function seedBooking(
 }
 
 async function getOverview(date: string): Promise<{ status: number; body: any }> {
-  const res = await exports.default.fetch(`https://example.com/api/admin/overview?date=${date}`)
+  const res = await exports.default.fetch(`https://example.com/api/admin/overview?date=${date}`, {
+    headers: { cookie: await adminCookieHeader() },
+  })
   return { status: res.status, body: await res.json() }
 }
 
@@ -129,6 +132,7 @@ async function getEarnings(
 ): Promise<{ status: number; body: any }> {
   const res = await exports.default.fetch(
     `https://example.com/api/admin/staff-earnings?staff_id=${staffId}&period=${period}&date=${date}`,
+    { headers: { cookie: await adminCookieHeader() } },
   )
   return { status: res.status, body: await res.json() }
 }
@@ -275,7 +279,9 @@ describe('GET /api/admin/overview — validation & rỗng', () => {
   beforeEach(wipe)
 
   it('thiếu date → 422 VALIDATION', async () => {
-    const res = await exports.default.fetch('https://example.com/api/admin/overview')
+    const res = await exports.default.fetch('https://example.com/api/admin/overview', {
+      headers: { cookie: await adminCookieHeader() },
+    })
     expect(res.status).toBe(422)
     expect((await res.json() as any).error.code).toBe('VALIDATION')
   })

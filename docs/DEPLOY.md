@@ -37,6 +37,21 @@ khi deploy, mở trang `/admin` và tạo dịch vụ/KTV/ca làm việc thật 
 `buildSeedStatements()` trả về danh sách câu SQL — có thể viết một script nhỏ đổ
 lên remote, nhưng không khuyến khích cho production thật.)
 
+### 4. Set secret auth admin (T-19) — BẮT BUỘC trước khi lên production
+
+Khu quản lý (`/admin/*` và mọi `/api/admin/*`) nằm sau đăng nhập. Hai secret
+phải set qua `wrangler secret put` (KHÔNG commit, KHÔNG để trong `wrangler.jsonc`):
+
+```bash
+npx wrangler secret put ADMIN_PASSWORD   # mật khẩu chung để đăng nhập admin
+npx wrangler secret put SESSION_SECRET   # khoá HMAC ký cookie phiên (chuỗi ngẫu nhiên dài)
+```
+
+`SESSION_SECRET` nên là chuỗi ngẫu nhiên ≥ 32 ký tự (ví dụ `openssl rand -hex 32`).
+Chưa set → auth fail-closed: mọi lần đăng nhập bị từ chối, không ai vào được admin
+(khách vẫn đặt lịch + trả tiền bình thường vì các route đó public). Local dev đọc
+hai giá trị này từ `.dev.vars` (đã gitignore).
+
 ## Nối repo (trong dashboard Cloudflare)
 
 1. Cloudflare Dashboard → Workers & Pages → Create → Workers → **Connect to Git**.
