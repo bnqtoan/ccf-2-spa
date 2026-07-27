@@ -114,9 +114,17 @@ Một PR có test đỏ KHÔNG merge được vào `main` vì CI check fail; m�
   local → `npm test` → cache+install Playwright chromium → `e2e --workers=1`.
 - `concurrency` huỷ run cũ khi push mới; `CI=true` để Playwright cold-start server
   (không reuse) + global-setup seed sạch. Cache npm + Playwright browser theo version.
-- Mô phỏng đúng chuỗi lệnh CI tại local (CI=true): typecheck xanh, migrate+seed OK,
-  e2e --workers=1 xanh. `npm test` lộ 1 flaky vitest (cancel-status, shared-D1) —
-  KHÔNG sửa test trong scope này (CONVENTIONS §9); đã giao task fix riêng.
+- Mô phỏng đúng chuỗi lệnh CI tại local (CI=true): typecheck xanh, migrate+seed OK.
+  Phát hiện 3 defect test-infra (KHÔNG sửa trong scope này — CONVENTIONS §9, đã
+  giao 1 task fix riêng gộp cả 3):
+  (1) e2e flaky parallel (admin-setup:60, cancel-too-late-hotline);
+  (2) vitest cancel-status đỏ khi full-suite, xanh khi cô lập (shared-D1);
+  (3) **near-midnight walk-in** (`admin-walkin-reassign.spec.ts:219`) đỏ TÁI HIỆN
+      100% khi chạy trong khung ~23:25–23:59 VN: walk-in tạo block 35' lúc 23:32
+      → kết thúc 00:07 hôm sau → không ca 24h đơn nào chứa trọn (invariant "block
+      gọn trong 1 ca" ĐÚNG) → KTV bị loại → sheet trống. Fixture ca-24h tưởng là
+      tất định nhưng KHÔNG chống được block tràn nửa đêm. Đây là bug FIXTURE, KHÔNG
+      phải regression code.
 - **CÒN LẠI (cần người dùng, quyền admin repo):** bật required status check "CI /
   verify" trên branch `main` (Settings → Branches → protection) để CI thật sự
   CHẶN merge. Chỉ bật SAU khi task fix flaky xong, nếu không PR nào cũng đỏ.
