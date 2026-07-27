@@ -4,12 +4,19 @@ import { bookingByPhone, bookThroughCustomerUi, createFlowFixture, goTimelineToD
 test.describe.configure({ mode: 'serial' })
 
 test('admin tạo nghỉ đột xuất đè booking thì booking vào hàng chờ, chuyển sang KTV đủ skill thành công, chuyển sang KTV thiếu skill bị chặn', async ({ page, request }) => {
-  // Hàng chờ là toàn cục: huỷ hợp lệ các item mồ côi từ lần chạy cũ trước khi
-  // kiểm chứng item của flow này, không DELETE hay wipe bảng.
+  // Hàng chờ là TOÀN CỤC (suy từ time_off ∩ booking_items trên cả DB). Chỉ dọn
+  // rác mồ côi CỦA CHÍNH bộ test này (khách 'Khách time-off ...' / fixture
+  // 'E2E Flow ...') — KHÔNG cancel toàn bộ queue: làm vậy sẽ huỷ mất orphan mà
+  // admin-timeline / admin-walkin-reassign đang test giữa chừng khi chạy song
+  // song, khiến chúng đỏ giả. Các assert dưới đều scope theo item_id cụ thể của
+  // flow này nên không cần queue phải rỗng tuyệt đối.
   const previous = await request.get('/api/admin/reassign-queue')
   expect(previous.ok()).toBe(true)
-  const oldItems = (await previous.json() as { items: { item_id: number }[] }).items
-  await Promise.all(oldItems.map((item) => request.post(`/api/admin/bookings/${item.item_id}/cancel`)))
+  const oldItems = (await previous.json() as { items: { item_id: number; customer_name: string }[] }).items
+  const mine = oldItems.filter(
+    (i) => i.customer_name.startsWith('Khách time-off ') || i.customer_name.startsWith('E2E Flow '),
+  )
+  await Promise.all(mine.map((item) => request.post(`/api/admin/bookings/${item.item_id}/cancel`)))
 
   const fx = await createFlowFixture(request, { withUnskilledStaff: true, withAlternateSkilledStaff: true })
   const phone = randomPhone()

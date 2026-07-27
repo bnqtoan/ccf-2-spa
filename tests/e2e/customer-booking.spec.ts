@@ -345,8 +345,11 @@ test.describe('Luồng khách đặt lịch', () => {
 
     await expect(page.getByTestId('time-continue')).toBeVisible()
     await expect(page.getByText('SLOT_TAKEN')).not.toBeVisible()
-    await expect(page.getByText('409')).not.toBeVisible()
-    await expect(page.getByText(/error/i)).not.toBeVisible()
+    // Ranh giới từ để không khớp nhầm số ngẫu nhiên trong tên/ID fixture (vd
+    // timestamp/staffId chứa "409"). getByText string là substring-match nên
+    // '409' trần từng khớp nhầm — dùng regex có \b như customer-combo.spec.ts.
+    await expect(page.getByText(/\b(HTTP\s*)?409\b/i)).not.toBeVisible()
+    await expect(page.getByText(/\berror\b/i)).not.toBeVisible()
   })
 
   test('mọi nút chính trên các màn hình đều có vùng chạm cao tối thiểu 48px', async ({ page, request }) => {
