@@ -34,8 +34,10 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-15 | Deploy: worker live + D1 remote migrated | done | sonnet | T-14 |
 | T-16 | Ba endpoint PRD §9 bị bỏ sót | done | sonnet | T-07 |
 | T-17 | UI Thiết lập (nhân viên/skill/dịch vụ/ca) | done | sonnet | T-06, T-09 |
-| T-18 | **CI gate** chặn merge nếu typecheck/test đỏ | todo | sonnet | — |
-| T-19 | **Auth** chặn mọi `/api/admin/*` + trang admin | todo | **opus** | — |
+| T-18 | **CI gate** chặn merge nếu typecheck/test đỏ | review | sonnet | T-20 |
+| T-19 | **Auth** chặn mọi `/api/admin/*` + trang admin | todo | **opus** | T-20 |
+| T-20 | Khử non-determinism test → CI serial tất định | done | sonnet | — |
+| T-21 | Centralize now() + inject clock (near-midnight walk-in) | todo | sonnet | T-20 |
 
 ## Cổng trước production (T-18, T-19)
 
