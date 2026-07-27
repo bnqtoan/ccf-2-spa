@@ -11,6 +11,7 @@
 import { Hono } from 'hono'
 import type { AppointmentStatus } from '../db/types.ts'
 import { canTransition } from '../lib/status.ts'
+import { serverNow } from '../lib/clock.ts'
 
 type Bindings = { DB: D1Database }
 
@@ -86,7 +87,7 @@ routes.post('/api/admin/bookings/:id/cancel', async (c) => {
 
   // Admin huỷ KHÔNG cutoff — lễ tân được tin tưởng (PRD §6). `now` chỉ dùng
   // để stamp cancelled_at, không dùng để chặn.
-  const now = Math.floor(Date.now() / 1000)
+  const now = serverNow(c)
   await db
     .prepare("UPDATE booking_items SET status = 'cancelled', cancelled_at = ? WHERE id = ?")
     .bind(now, itemId)

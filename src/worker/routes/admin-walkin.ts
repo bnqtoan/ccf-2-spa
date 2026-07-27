@@ -31,6 +31,7 @@ import type { Interval } from '../lib/intervals.ts'
 import { overlaps } from '../lib/intervals.ts'
 import { localDayBounds, localParts, minutesToEpoch } from '../lib/time.ts'
 import { blockEndAt, endAt, validateBooking } from '../lib/validate-booking.ts'
+import { serverNow } from '../lib/clock.ts'
 
 type Bindings = { DB: D1Database }
 
@@ -70,7 +71,7 @@ routes.get('/api/admin/available-now', async (c) => {
     return c.json(errorBody('NOT_FOUND', `Không tìm thấy service variant ${variantId}`), 404)
   }
 
-  const now = Math.floor(Date.now() / 1000)
+  const now = serverNow(c)
   const dateStr = localDateStr(now)
   const { start: dayStart } = localDayBounds(dateStr)
   const weekday = localWeekday(now)
@@ -145,7 +146,7 @@ routes.post('/api/admin/walk-ins', async (c) => {
     return c.json(errorBody('NOT_FOUND', `Không tìm thấy service variant ${variantId}`), 404)
   }
 
-  const now = Math.floor(Date.now() / 1000)
+  const now = serverNow(c)
   const dateStr = localDateStr(now)
   const { start: dayStart } = localDayBounds(dateStr)
   const weekday = localWeekday(now)

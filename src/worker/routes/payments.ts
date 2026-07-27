@@ -23,6 +23,7 @@ import {
 } from '../db/payments.ts'
 import { getProvider, isProviderId } from '../lib/payments/registry.ts'
 import type { PaymentEnv } from '../lib/payments/types.ts'
+import { serverNow } from '../lib/clock.ts'
 
 type Bindings = { DB: D1Database } & PaymentEnv
 
@@ -90,7 +91,7 @@ routes.post('/api/payments/create', async (c) => {
     return c.json(errorBody('ALREADY_PAID', 'Lịch hẹn này đã được thanh toán'), 409)
   }
 
-  const now = Math.floor(Date.now() / 1000)
+  const now = serverNow(c)
   const orderRef = makeOrderRef(appointmentId, now)
 
   const prov = getProvider(provider, c.env)
@@ -179,7 +180,7 @@ routes.post('/api/payments/webhook/:provider', async (c) => {
     providerTxnId: event.providerTxnId,
     amountVnd: amountToCredit,
     rawJson,
-    paidAt: Math.floor(Date.now() / 1000),
+    paidAt: serverNow(c),
   })
 
   // Always 200 + success on a verified event so retries stop. `credited`

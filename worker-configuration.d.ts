@@ -14,6 +14,10 @@ interface __BaseEnv_Env {
 	PAYPAL_BASE_URL?: string;
 	PAYPAL_VND_PER_USD?: string;
 	PAYPAL_WEBHOOK_ID?: string;
+	// T-21: chỉ set trong TEST để cố định "now" của server (nowSec() trong
+	// lib/clock.ts). Production KHÔNG BAO GIỜ set → server dùng đồng hồ thật.
+	TEST_NOW_SEC?: string;
+	TEST_CLOCK?: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

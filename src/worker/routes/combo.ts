@@ -36,6 +36,7 @@ import { localDayBounds, localParts, parseDateStr, weekdayOf } from '../lib/time
 import { pickStaff } from '../lib/availability.ts'
 import type { BusyItem, TimeOffInterval } from '../lib/availability.ts'
 import type { Staff, WorkShift } from '../db/types.ts'
+import { serverNow } from '../lib/clock.ts'
 
 type Bindings = { DB: D1Database }
 
@@ -219,7 +220,7 @@ routes.post('/api/combo/availability', async (c) => {
     busyItems: busyRes.results,
     dayStart,
     dayEnd,
-    now: Math.floor(Date.now() / 1000),
+    now: serverNow(c),
   })
 
   return c.json({ coverable: true, slots })
@@ -268,7 +269,7 @@ routes.post('/api/combo/bookings', async (c) => {
   if (legs === null) return c.json(errorBody('NOT_FOUND', 'Có dịch vụ trong combo không tồn tại'), 404)
 
   const required = requiredSkillIds(legs)
-  const now = Math.floor(Date.now() / 1000)
+  const now = serverNow(c)
   const date = localDateStr(startAt)
   const { start: dayStart, end: dayEnd } = localDayBounds(date)
   const weekday = localWeekday(startAt)

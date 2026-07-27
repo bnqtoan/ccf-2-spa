@@ -17,6 +17,7 @@ import {
   computeAvailability,
 } from '../lib/availability.ts'
 import { localDayBounds, parseDateStr, weekdayOf } from '../lib/time.ts'
+import { serverNow } from '../lib/clock.ts'
 
 type Bindings = { DB: D1Database }
 
@@ -141,7 +142,7 @@ routes.get('/api/availability', async (c) => {
     busyItems: busyRes.results,
     dayStart,
     dayEnd,
-    now: Math.floor(Date.now() / 1000),
+    now: serverNow(c),
   })
 
   return c.json({ slots })

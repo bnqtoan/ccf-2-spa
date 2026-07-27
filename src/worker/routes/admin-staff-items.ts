@@ -20,6 +20,7 @@
 
 import { Hono } from 'hono'
 import { staffExists } from '../db/crud.ts'
+import { serverNow } from '../lib/clock.ts'
 
 type Bindings = { DB: D1Database }
 
@@ -49,7 +50,7 @@ routes.get('/api/admin/staff/:id/upcoming-items', async (c) => {
     return c.json(errorBody('NOT_FOUND', `Không tìm thấy kỹ thuật viên ${staffId}`), 404)
   }
 
-  const now = Math.floor(Date.now() / 1000)
+  const now = serverNow(c)
   // `block_end_at > now` — an appointment whose cleanup buffer has not yet
   // finished still counts as upcoming: the technician is still needed for it.
   // Only live statuses matter; done/no_show/cancelled bookings free nothing.
