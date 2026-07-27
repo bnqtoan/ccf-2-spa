@@ -167,6 +167,11 @@ const FUTURE_DATE = futureDateStr(12)
 // thì ca làm việc tạo cho weekday 1 không còn khớp ngày được hỏi, và mọi test
 // availability trả mảng rỗng — trông y hệt lỗi engine chứ không như lỗi fixture.
 const FUTURE_WEEKDAY = weekdayOf(FUTURE_DATE)
+// Một weekday CHẮC CHẮN khác ngày được hỏi — để test "KTV không có ca ngày đó"
+// tất định bất kể FUTURE_DATE rơi vào thứ mấy. Trước đây dùng cứng `0` (Chủ
+// nhật); khi FUTURE_DATE tình cờ rơi Chủ nhật thì KTV lại CÓ ca đúng ngày hỏi
+// → slots không rỗng → test đỏ, trông y như lỗi engine chứ không như lỗi fixture.
+const OTHER_WEEKDAY = (FUTURE_WEEKDAY + 1) % 7
 const { start: FUTURE_DAY_START } = localDayBounds(FUTURE_DATE)
 
 /**
@@ -193,8 +198,8 @@ describe('GET /api/availability — lọc ứng viên', () => {
     const skill = await insertSkill('Massage')
     const staff = await insertStaff('Lan', [skill])
     const variant = await insertVariant(skill, { duration: 60, buffer: 10 })
-    // Ca chỉ có vào Chủ nhật (weekday 0), còn ngày hỏi là thứ Hai.
-    await insertShift(staff, 0, 540, 1140)
+    // Ca chỉ có vào một weekday KHÁC ngày được hỏi (OTHER_WEEKDAY ≠ FUTURE_WEEKDAY).
+    await insertShift(staff, OTHER_WEEKDAY, 540, 1140)
 
     const { status, body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`)
     expect(status).toBe(200)

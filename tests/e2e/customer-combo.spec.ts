@@ -154,9 +154,11 @@ test.describe('Luồng khách đặt combo nối tiếp (R1a)', () => {
     await expect(page.getByTestId('combo-uncoverable')).toContainText('Chưa có kỹ thuật viên nào làm được trọn combo')
     // No slots are offered, so the continue button stays disabled.
     await expect(page.getByTestId('combo-time-continue')).toBeDisabled()
-    // Raw error codes never leak to the customer.
+    // Raw error codes never leak to the customer. Dùng regex có RANH GIỚI TỪ để
+    // không khớp nhầm số/chuỗi ngẫu nhiên trong tên fixture (vd tên chứa
+    // timestamp "...856409..." từng khiến /409/ khớp nhầm span tên dịch vụ).
     await expect(page.getByText('STAFF_LACKS_SKILL')).not.toBeVisible()
-    await expect(page.getByText(/409|error/i)).not.toBeVisible()
+    await expect(page.getByText(/\b(HTTP\s*)?409\b|\berror\b/i)).not.toBeVisible()
   })
 
   test('có thể bỏ một dịch vụ khỏi giỏ combo trước khi đặt', async ({ page, request }) => {
