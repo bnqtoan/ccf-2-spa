@@ -1,0 +1,27 @@
+# Mẫu biến môi trường cho DEV/TEST local. Copy sang `.dev.vars` (đã gitignore)
+# để `npm run dev` + `npm run e2e` chạy được. Đây KHÔNG phải secret production —
+# production set qua `wrangler secret put` (xem docs/DEPLOY.md).
+#
+#   cp .dev.vars.example .dev.vars
+#
+# CẢNH BÁO KHỚP GIÁ TRỊ: các test hardcode một số giá trị này, phải GIỮ NGUYÊN:
+#   - ADMIN_PASSWORD=dev-admin-password  ← tests/e2e/auth.setup.ts + admin-auth.spec.ts
+#   - SESSION_SECRET=test-session-secret ← tests/api/_authCookie.ts
+#   - TEST_CLOCK=1                        ← bật clock-inject cho e2e near-midnight (T-21)
+# Đổi ADMIN_PASSWORD/SESSION_SECRET ở .dev.vars thì phải đổi cả trong các test trên.
+
+# --- Payment (SePay + PayPal) — giá trị TEST, không phải thật ---
+SEPAY_API_KEY=test-sepay-key
+SEPAY_ACCOUNT_NUMBER=0123456789
+PAYPAL_CLIENT_ID=test-paypal-client
+PAYPAL_SECRET=test-paypal-secret
+PAYPAL_BASE_URL=https://api-m.sandbox.paypal.com
+PAYPAL_VND_PER_USD=25000
+PAYPAL_WEBHOOK_ID=test-webhook-id
+
+# --- Clock inject (T-21) — cho e2e cố định "now" qua header X-Test-Now ---
+TEST_CLOCK=1
+
+# --- Auth admin (T-19) — GIÁ TRỊ TEST, đổi ở production qua wrangler secret ---
+ADMIN_PASSWORD=dev-admin-password
+SESSION_SECRET=test-session-secret

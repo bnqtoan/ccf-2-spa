@@ -36,6 +36,13 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # E2E chạy `vite dev` đọc .dev.vars (auth ADMIN_PASSWORD, TEST_CLOCK cho
+      # clock-inject, payment secrets test). File này gitignore nên CI phải dựng
+      # từ .dev.vars.example — giá trị test đã khớp hardcode trong spec. (Vitest
+      # không cần .dev.vars: bindings nằm trong vitest.config.ts.)
+      - name: Setup .dev.vars for e2e
+        run: cp .dev.vars.example .dev.vars
+
       # Test API chạy trong workerd + D1 local thật (CONVENTIONS §8) → phải
       # migrate + seed trước.
       - name: Migrate + seed D1 (local)
