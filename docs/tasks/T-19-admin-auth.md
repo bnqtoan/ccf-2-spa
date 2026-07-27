@@ -1,7 +1,7 @@
 ---
 id: T-19
 title: Auth chặn mọi route /api/admin/* và trang admin
-status: todo            # todo | in_progress | review | done | blocked
+status: review         # todo | in_progress | review | done | blocked
 model: opus             # opus — sai thì im lặng & lộ dữ liệu tiền/khách
 effort: high            # low | medium | high
 depends_on: []          # độc lập về code; nên merge sau/cùng T-18 để CI bắt lỗi
@@ -14,9 +14,9 @@ touches:
   - worker-configuration.d.ts         # secret binding
   - wrangler.jsonc                    # secret binding
 prd_refs: ["§ Out v1: Auth"]
-owner: null
-started_at: null
-finished_at: null
+owner: agent-T19
+started_at: 2026-07-28
+finished_at: 2026-07-28
 ---
 
 # T-19 · Auth chặn mọi route /api/admin/* và trang admin
@@ -123,4 +123,62 @@ chặn; khách vẫn đặt lịch + trả tiền bình thường; webhook payme
 - Sửa `src/worker/index.ts` để mount middleware — KHÔNG. Mount ở `routes/index.ts`.
 
 ## Đã làm gì
-(agent điền khi xong)
+
+**Phương án: (a) — một MẬT KHẨU ADMIN chung + phiên cookie ký HMAC.** Vì sao (a)
+không (b): app single-tenant, một spa, PRD §2 loại multi-user/RBAC khỏi v1. Không
+cần bảng `admin_users` hay password_hash per-user — chỉ cần phân biệt "nhân viên
+đã đăng nhập" vs "người ngoài". (b) đưa vào một bảng + migration + vòng đời user
+mà không ai dùng ở bước này = nợ chết. (a) là production-complete cho slice này.
+
+**Cơ chế:** `POST /api/auth/login` nhận `{password}`, so với secret `ADMIN_PASSWORD`
+(so sánh thời-gian-hằng). Đúng → phát token = `base64url(payload).base64url(HMAC-
+SHA256(payload, SESSION_SECRET))`, payload chứa `exp` (TTL 12h = một ca). Token đặt
+vào cookie `ccf_admin_session` với `HttpOnly; Secure; SameSite=Lax; Path=/`. HttpOnly
+→ JS/SPA không đọc được token (chống XSS, đúng cạm bẫy card). Middleware
+`adminAuthGuard` mount **một dòng** `app.use('/api/admin/*', adminAuthGuard)` ở
+`registerRoutes()` TRƯỚC mọi route admin — chặn cả 26 endpoint admin tại một chỗ.
+Thiếu/sai chữ ký/hết hạn → 401 `UNAUTHORIZED`. Logic ký/kiểm thuần ở
+`src/worker/lib/auth.ts` (không query DB, CONVENTIONS §7).
+
+**Mã lỗi:** thêm `UNAUTHORIZED` + HTTP 401 vào CONVENTIONS §5 (đã duyệt; có tiền lệ
+`payments.ts:150` cho webhook). API trả `{error:{code:'UNAUTHORIZED',message}}` với
+message tiếng Việt tự nhiên, không lộ vì sao chữ ký fail.
+
+**SPA:** `/login` (một ô mật khẩu; sai → "Mật khẩu không đúng", không lộ mã thô).
+Guard `RequireAuth` bọc mọi route `/admin/*`: hỏi `GET /api/auth/session` → chưa
+auth thì `Navigate` về `/login?next=<đích>`. `apiClient`/authClient gắn
+`credentials:'same-origin'` (cookie same-origin tự đính vào mọi fetch `/api/*` nên
+các fetch admin sẵn có KHÔNG phải sửa).
+
+**Secret binding:** `ADMIN_PASSWORD` + `SESSION_SECRET` thêm vào `worker-
+configuration.d.ts` (Env, optional → build được trước khi cấu hình, fail-closed khi
+thiếu), ghi chú ở `wrangler.jsonc`, hướng dẫn `wrangler secret put` ở `docs/DEPLOY.md`
+bước 4. Giá trị test local ở `.dev.vars` (gitignored). KHÔNG hardcode secret thật.
+
+**PUBLIC giữ nguyên (đã kiểm no-code bằng curl + E2E):** webhook `POST /api/payments/
+webhook/:provider` (tự xác thực Apikey, không nằm dưới `/api/admin/*`); route khách
+`/api/services`, `/api/availability`, `/api/bookings*`, `/api/payments/create`,
+`/api/combo/*`, `/api/bookings/:id/cancel`. Chỉ `/api/admin/*` bị chặn.
+
+**Test (KHÔNG nới/xoá assertion nào):**
+- `tests/unit/auth.test.ts` — lib thuần: checkPassword, issue/verify token, hết hạn,
+  sai secret, sửa payload, fail-closed.
+- `tests/api/auth.test.ts` — mỗi nhóm admin (schedule/reassign/overview/staff) không
+  cookie → 401; chữ ký sai/hết hạn → 401; cookie hợp lệ → qua như cũ; route khách +
+  webhook payment vẫn public; login sai→401/đúng→cookie dùng được; logout; session.
+- `tests/e2e/admin-auth.spec.ts` — guard đẩy về /login khi chưa auth; sai mật khẩu;
+  login đúng → vào /admin/timeline; logout → lại bị chặn.
+- 8 file test admin cũ: thêm cookie phiên hợp lệ qua helper chung `tests/api/
+  _authCookie.ts` (mỗi test admin HIỆN RÕ cần phiên; guard hỏng → case 401-khi-thiếu
+  ở auth.test.ts đỏ đúng chỗ). E2E: `tests/e2e/auth.setup.ts` đăng nhập một lần +
+  storageState, hai project admin dùng lại → 40 spec admin cũ xanh không phải sửa
+  từng file.
+
+**Kết quả:** typecheck xanh · API+unit 330/330 · E2E 81/81 (guard 5/5) · no-code curl
+xác nhận chưa-login→401 UNAUTHORIZED, khách/webhook vẫn 200, cookie hợp lệ→admin 200.
+
+**File đụng NGOÀI `touches` (đã báo + duyệt orchestrator):** `vitest.config.ts`
+(2 binding test), `playwright.config.ts` + `tests/e2e/auth.setup.ts` (storageState
+cho suite cũ), 8 file `tests/api/*` + `tests/api/_authCookie.ts` (cấp cookie cho test
+admin cũ theo phương án A explicit), `docs/DEPLOY.md` (hướng dẫn secret put),
+`.gitignore` (bỏ qua `tests/e2e/.auth/` chứa cookie phiên).

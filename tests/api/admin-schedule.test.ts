@@ -2,6 +2,7 @@ import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
 import { localDayBounds } from '../../src/worker/lib/time.ts'
+import { adminCookieHeader } from './_authCookie.ts'
 
 const db = env.DB
 
@@ -118,7 +119,7 @@ async function getSchedule(date: string | undefined): Promise<{ status: number; 
     date === undefined
       ? 'https://example.com/api/admin/schedule'
       : `https://example.com/api/admin/schedule?date=${encodeURIComponent(date)}`
-  const res = await exports.default.fetch(url)
+  const res = await exports.default.fetch(url, { headers: { cookie: await adminCookieHeader() } })
   return { status: res.status, body: await res.json() }
 }
 

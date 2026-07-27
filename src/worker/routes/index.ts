@@ -14,6 +14,7 @@ import adminStaffItems from './admin-staff-items.ts'
 import combo from './combo.ts'
 import adminOverview from './admin-overview.ts'
 import payments from './payments.ts'
+import auth, { adminAuthGuard } from './auth.ts'
 
 /**
  * Điểm gom route duy nhất (CONVENTIONS §7).
@@ -28,6 +29,8 @@ const BUILD_TAG = '2026-07-24-connect-git'
 export function registerRoutes(app: Hono) {
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.get('/api/version', (c) => c.json({ build: BUILD_TAG }))
+  app.use('/api/admin/*', adminAuthGuard) // T-19 — cổng auth chặn MỌI route admin
+  app.route('/', auth) // T-19 — login / logout / session (public)
   app.route('/', adminCrud)
   app.route('/', availability) // T-03
   app.route('/', bookings) // T-04

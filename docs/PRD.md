@@ -5,8 +5,10 @@ Audience: AI agents implementing this. Terse by design.
 ## 1. Scope
 
 Booking system for a spa. Customers book services; system assigns technicians
-(KTV) who have the required skill and are free. No auth in v1 — anyone can
-reach both the customer UI and the admin UI.
+(KTV) who have the required skill and are free. The customer UI is public;
+the admin UI is behind a login (T-19) — a shared admin password issues a signed
+session cookie, and every `/api/admin/*` route + every `/admin/*` SPA page
+requires it. Payment webhooks and customer routes stay public.
 
 **In (MVP)**
 - CRUD: skills, staff (+skills), services (+variants), work shifts
@@ -44,7 +46,7 @@ in §10 are cheaper and honest.
 | Staff absence | `time_off` + a reassign queue for the bookings it orphans |
 | Rooms | Deferred, no reserved column |
 | Multi-branch | Deferred, no reserved column; see §10 |
-| Auth | None in v1 |
+| Auth | Admin behind a shared-password session (T-19); customer UI public |
 
 ## 3. Domain model
 
@@ -241,7 +243,7 @@ POST   /api/bookings                      -- {customer:{name,phone}, variant_id,
 GET    /api/bookings?phone=               -- customer looks up own bookings
 POST   /api/bookings/:id/cancel
 
--- admin (same app, no auth in v1)
+-- admin (same app; all /api/admin/* require the T-19 session cookie)
 GET    /api/admin/schedule?date=          -- all staff, all items, day view
 GET    /api/admin/available-now?variant_id  -- walk-in: who is free right now
 POST   /api/admin/walk-ins                -- quick booking, starts now

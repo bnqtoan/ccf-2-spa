@@ -49,9 +49,10 @@ block_end_at = start_at + variant.duration_min + variant.buffer_after_min
 - Lỗi trả `{ error: { code, message } }`.
 - Mã lỗi hợp lệ (PRD §9): `SLOT_TAKEN`, `CANCEL_TOO_LATE`, `STAFF_LACKS_SKILL`,
   `OUTSIDE_SHIFT`, `ZONE_CONFLICT`, `INVALID_TRANSITION`, `NOT_FOUND`,
-  `VALIDATION`. Không tự nghĩ mã mới; cần mã mới thì báo.
+  `VALIDATION`, `UNAUTHORIZED`. Không tự nghĩ mã mới; cần mã mới thì báo.
 - HTTP: 201 tạo mới, 409 xung đột (`SLOT_TAKEN`, `CANCEL_TOO_LATE`),
-  422 `VALIDATION`, 404 `NOT_FOUND`.
+  422 `VALIDATION`, 404 `NOT_FOUND`, 401 `UNAUTHORIZED` (T-19 auth admin +
+  webhook payment; thiếu/sai phiên hoặc sai mật khẩu).
 
 ## 6. Validation (PRD §11)
 

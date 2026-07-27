@@ -1,6 +1,7 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
+import { adminCookieHeader } from './_authCookie.ts'
 
 const db = env.DB
 
@@ -31,7 +32,10 @@ beforeEach(async () => {
 })
 
 async function api(path: string, init?: RequestInit): Promise<Response> {
-  return exports.default.fetch(`https://example.com${path}`, init)
+  // T-19: mọi route ở đây là /api/admin/* → gắn cookie phiên admin hợp lệ.
+  const cookie = await adminCookieHeader()
+  const headers = { ...(init?.headers as Record<string, string> | undefined), cookie }
+  return exports.default.fetch(`https://example.com${path}`, { ...init, headers })
 }
 
 async function post(path: string, body: unknown): Promise<Response> {

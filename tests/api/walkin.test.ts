@@ -1,6 +1,7 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
+import { adminCookieHeader } from './_authCookie.ts'
 
 const db = env.DB
 
@@ -133,14 +134,16 @@ async function seedBooking(
 }
 
 async function getAvailableNow(variantId: number | string): Promise<{ status: number; body: any }> {
-  const res = await exports.default.fetch(`https://example.com/api/admin/available-now?variant_id=${variantId}`)
+  const res = await exports.default.fetch(`https://example.com/api/admin/available-now?variant_id=${variantId}`, {
+    headers: { cookie: await adminCookieHeader() },
+  })
   return { status: res.status, body: await res.json() }
 }
 
 async function postWalkIn(body: unknown): Promise<{ status: number; body: any }> {
   const res = await exports.default.fetch('https://example.com/api/admin/walk-ins', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie: await adminCookieHeader() },
     body: JSON.stringify(body),
   })
   return { status: res.status, body: await res.json() }

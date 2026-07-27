@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
 import { reassignItemAtomically } from '../../src/worker/db/timeoff.ts'
 import { localDayBounds, weekdayOf } from '../../src/worker/lib/time.ts'
+import { adminCookieHeader } from './_authCookie.ts'
 
 const db = env.DB
 
@@ -131,31 +132,38 @@ async function seedBooking(opts: {
 async function postTimeOff(body: unknown): Promise<{ status: number; body: any }> {
   const res = await exports.default.fetch('https://x.test/api/admin/time-off', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie: await adminCookieHeader() },
     body: JSON.stringify(body),
   })
   return { status: res.status, body: await res.json() }
 }
 
 async function deleteTimeOffApi(id: number): Promise<{ status: number; body: any }> {
-  const res = await exports.default.fetch(`https://x.test/api/admin/time-off/${id}`, { method: 'DELETE' })
+  const res = await exports.default.fetch(`https://x.test/api/admin/time-off/${id}`, {
+    method: 'DELETE',
+    headers: { cookie: await adminCookieHeader() },
+  })
   return { status: res.status, body: await res.json() }
 }
 
 async function getQueue(): Promise<{ status: number; body: any }> {
-  const res = await exports.default.fetch('https://x.test/api/admin/reassign-queue')
+  const res = await exports.default.fetch('https://x.test/api/admin/reassign-queue', {
+    headers: { cookie: await adminCookieHeader() },
+  })
   return { status: res.status, body: await res.json() }
 }
 
 async function getCandidates(itemId: number): Promise<{ status: number; body: any }> {
-  const res = await exports.default.fetch(`https://x.test/api/admin/bookings/${itemId}/reassign-candidates`)
+  const res = await exports.default.fetch(`https://x.test/api/admin/bookings/${itemId}/reassign-candidates`, {
+    headers: { cookie: await adminCookieHeader() },
+  })
   return { status: res.status, body: await res.json() }
 }
 
 async function postReassign(itemId: number, staffId: unknown): Promise<{ status: number; body: any }> {
   const res = await exports.default.fetch(`https://x.test/api/admin/bookings/${itemId}/reassign`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie: await adminCookieHeader() },
     body: JSON.stringify({ staff_id: staffId }),
   })
   return { status: res.status, body: await res.json() }
