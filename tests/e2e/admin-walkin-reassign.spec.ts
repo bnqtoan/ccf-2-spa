@@ -59,6 +59,22 @@ const FULL_DAY_END_MIN = 1440
 // đều mang tiền tố "E2E WR" + tag này để tự nhận diện & tự dọn, không đụng
 // dữ liệu seed chuẩn hay của agent khác chạy song song.
 const TAG = `${Date.now()}-${Math.floor(Math.random() * 100000)}`
+
+// "now" GIẢ của server cho cả bộ test walk-in: 12:00 TRƯA HÔM NAY (giờ VN). Gửi
+// cho server qua header X-Test-Now (beforeEach) VÀ dùng làm mốc khi seed các
+// booking "ngay bây giờ" (seedBusyRightNow/seedOrphanNow) — hai bên PHẢI cùng
+// mốc, nếu không KTV "bận lúc now thật" lại rảnh dưới mắt server-now=trưa. Neo
+// giữa ngày để block walk-in 35' không tràn nửa đêm bất kể CI chạy lúc nào.
+const SERVER_NOW_SEC = (() => {
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+  return Math.floor(Date.parse(`${ymd}T05:00:00Z`) / 1000) // 12:00 VN = 05:00 UTC
+})()
+
 const SKILL_NAME = `E2E WR Skill ${TAG}` // skill HIẾM, không staff chuẩn nào có
 const SERVICE_NAME = `E2E WR Service ${TAG}`
 const VARIANT_NAME = `E2E WR Variant ${TAG}`
@@ -123,7 +139,7 @@ function seedBaseFixtures(): void {
 
 /** Khoá STAFF_BUSY bận NGAY BÂY GIỜ bằng một booking_item thật chồng giờ hiện tại. */
 function seedBusyRightNow(): void {
-  const now = Math.floor(Date.now() / 1000)
+  const now = SERVER_NOW_SEC // cùng mốc với X-Test-Now gửi cho server
   const startAt = now - 300 // bắt đầu 5' trước, còn đang chạy
   const custName = `E2E WR BusyBlocker ${TAG}`
   runSql(`
@@ -142,7 +158,7 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
 
 /** Seed một booking_item mồ côi NGAY BÂY GIỜ (bị time_off đè lên), gán cho `ownerName`. */
 function seedOrphanNow(ownerName: string, customerSuffix: string, phone: string | null): number {
-  const now = Math.floor(Date.now() / 1000)
+  const now = SERVER_NOW_SEC // cùng mốc với X-Test-Now gửi cho server
   const startAt = now - 120
   const custName = `E2E WR ${customerSuffix} ${TAG}`
   const phoneVal = phone === null ? 'NULL' : `'${esc(phone)}'`
@@ -214,6 +230,16 @@ test.describe('Admin — khách vãng lai + hàng chờ xếp lại', () => {
   test.beforeAll(() => {
     seedBaseFixtures()
     cancelAllPriorEwrOrphans()
+  })
+
+  // Cố định "now" của server ở 12:00 TRƯA HÔM NAY (giờ VN) cho mọi request của
+  // các test walk-in. Walk-in dùng now thật + tạo block 35' — nếu chạy gần nửa
+  // đêm (23:25–23:59) block tràn sang ngày mai, không ca 24h đơn nào chứa trọn
+  // (đúng thiết kế: block không nối 2 ca 2 ngày) nên KTV bị loại → test đỏ theo
+  // GIỜ CHẠY. Neo now vào giữa ngày để tất định bất kể CI chạy lúc nào. Server
+  // chỉ tin header này vì .dev.vars bật TEST_CLOCK=1 (production không có).
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders({ 'X-Test-Now': String(SERVER_NOW_SEC) })
   })
 
   test('tạo khách vãng lai xong thì block mới hiện ngay trên timeline', async ({ page }) => {

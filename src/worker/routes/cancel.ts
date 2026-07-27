@@ -9,6 +9,7 @@
 
 import { Hono } from 'hono'
 import { canCustomerCancel, canTransition } from '../lib/status.ts'
+import { serverNow } from '../lib/clock.ts'
 
 type Bindings = { DB: D1Database }
 
@@ -39,7 +40,7 @@ routes.post('/api/bookings/:id/cancel', async (c) => {
   }
 
   // Thời điểm hiện tại của SERVER — không bao giờ tin client.
-  const now = Math.floor(Date.now() / 1000)
+  const now = serverNow(c)
   if (!canCustomerCancel(item.start_at, now)) {
     return c.json(
       errorBody('CANCEL_TOO_LATE', 'Chỉ còn dưới 2 tiếng trước giờ hẹn, vui lòng gọi điện cho spa để đổi lịch'),
