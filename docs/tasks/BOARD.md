@@ -34,6 +34,22 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-15 | Deploy: worker live + D1 remote migrated | done | sonnet | T-14 |
 | T-16 | Ba endpoint PRD §9 bị bỏ sót | done | sonnet | T-07 |
 | T-17 | UI Thiết lập (nhân viên/skill/dịch vụ/ca) | done | sonnet | T-06, T-09 |
+| T-18 | **CI gate** chặn merge nếu typecheck/test đỏ | todo | sonnet | — |
+| T-19 | **Auth** chặn mọi `/api/admin/*` + trang admin | todo | **opus** | — |
+
+## Cổng trước production (T-18, T-19)
+
+Sau phiên audit + 4 feature song song (operational-safety, combo, dashboard,
+payment) đã lên `main`, hệ thống **chạm tiền** (payment) và **lộ số liệu kinh
+doanh** (overview). Hai card này là cổng bắt buộc trước khi bật production thật:
+
+- **T-18 CI gate** — không cho code đỏ lên `main`; hiện deploy tự động mà test
+  không chạy trong pipeline.
+- **T-19 Auth** — mọi route admin (kể cả doanh thu + payment) đang MỞ; PRD cũ ghi
+  "No auth in v1", card này chính thức nâng auth vào scope.
+
+Độc lập nhau về code. Nên làm **T-18 trước** (để nó bắt lỗi cho T-19), rồi T-19.
+Webhook payment và route khách phải VẪN public — xem cạm bẫy trong T-19.
 
 ## Thứ tự chạy
 
