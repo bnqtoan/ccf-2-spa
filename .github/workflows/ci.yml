@@ -1,0 +1,68 @@
+# CI gate (T-18) — chặn merge nếu typecheck/test/e2e đỏ.
+# KHÔNG thay cơ chế deploy (Cloudflare Workers Builds tự deploy khi push main);
+# đây là tầng kiểm tra CHẶN TRƯỚC. Không đụng 2 workflow claude-*.yml.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Huỷ lần chạy cũ khi có push mới trên cùng nhánh/PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck + test + e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Test API chạy trong workerd + D1 local thật (CONVENTIONS §8) → phải
+      # migrate + seed trước.
+      - name: Migrate + seed D1 (local)
+        run: |
+          npm run db:migrate:local
+          npm run db:seed:local
+
+      - name: Unit + API tests
+        run: npm test
+
+      # Cache browser Playwright theo version trong package-lock để lần sau nhanh.
+      - name: Get Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # E2E chạy TUẦN TỰ (--workers=1). Lý do: 2 spec race nhau do dùng chung D1
+      # local + waitForTimeout — flaky khi chạy song song đầy đủ (T-18 cạm bẫy).
+      # Playwright tự cold-start dev server (CI=true → không reuse) và seed sạch
+      # qua global-setup, nên không cần start server thủ công.
+      - name: E2E tests
+        run: npm run e2e -- --workers=1
