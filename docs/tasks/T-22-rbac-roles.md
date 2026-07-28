@@ -1,7 +1,7 @@
 ---
 id: T-22
 title: RBAC 3 vai trò (owner/receptionist/technician) — filter-by-role
-status: todo            # todo | in_progress | review | done | blocked
+status: review          # todo | in_progress | review | done | blocked
 model: opus             # sai-thì-im-lặng (technician thấy/sửa dữ liệu người khác)
 effort: high
 depends_on: [T-19]      # mở rộng session payload + guard của T-19
@@ -20,8 +20,8 @@ touches:
   - tests/
 prd_refs: ["§2"]        # PRD §2 loại RBAC khỏi v1 — task này ĐƯA RBAC vào; cập nhật PRD
 owner: null
-started_at: null
-finished_at: null
+started_at: 2026-07-28
+finished_at: 2026-07-28
 ---
 
 # T-22 · RBAC 3 vai trò — filter-by-role
@@ -161,4 +161,53 @@ ownership-check, không chỉ ẩn UI); khách + webhook payment không bị ả
   users.staff_id, staff KHÔNG đổi). Áp sạch trên 0003.
 
 ## Đã làm gì
-(agent điền khi xong)
+
+**Migration 0004 (additive trên 0003):** thêm bảng `users(id, username UNIQUE,
+password_hash, role CHECK IN (owner|receptionist|technician), staff_id REFERENCES
+staff(id) nullable, active DEFAULT 1, created_at)`. staff KHÔNG đổi (link qua
+users.staff_id). Index idx_users_staff_id.
+
+**lib/auth.ts (mở rộng T-19, không viết lại):** thêm type `Role`/`AuthUser`;
+SessionPayload thêm {uid, role, sid}; `issueSessionToken(secret, now, ttl, user?)`
+ký role vào payload HMAC; `readSession()` trả AuthUser đã ký (verifySessionToken
+gọi nó); `requireRole(user, ...roles)` thuần; `hashPassword`/`verifyPassword`
+PBKDF2-SHA256 100k vòng qua crypto.subtle (KHÔNG bcrypt), constant-time, fail-closed.
+
+**routes/auth.ts:** adminAuthGuard nay `c.set('user', …)`; thêm `requireRoleMw(...roles)`
+(403 FORBIDDEN); login đổi sang username+password tra bảng users (verifyPassword,
+chặn user inactive, không rò rỉ user-tồn-tại qua timing); session trả role/staffId.
+
+**3 hình dạng authorization:**
+- role-gate (owner-only) mount ở registerRoutes: /api/admin/overview, /staff-earnings,
+  /users(+/*), và MUTATION (POST/PATCH/DELETE) trên /skills /services /variants
+  (GET giữ mở để lễ tân xem giá khi nhận walk-in). CRUD staff/shifts KHÔNG gate.
+- row-filter: admin-schedule lọc `AND staff_id = ?` ở cả 3 truy vấn khi role=technician
+  → chỉ thấy cột của mình (fail-closed nếu thiếu staffId).
+- ownership-check: admin-status (đổi status + huỷ) + admin-timeoff (báo nghỉ) chặn
+  403 khi technician đụng staff_id ≠ mình. **Đây là chống silent-side-effect (cạm bẫy #1).**
+
+**admin-users.ts (mới):** GET/POST/PATCH /api/admin/users (owner-only); validate
+role↔staff_id (technician BẮT BUỘC staff_id, owner/lễ tân KHÔNG được có); không trả
+password_hash.
+
+**seed.ts:** thêm 3 user (owner/reception/ktv link staff Lan), mật khẩu = ADMIN_PASSWORD.
+users xoá trước staff (FK). CLI seed đọc ADMIN_PASSWORD từ .dev.vars + hash PBKDF2.
+
+**SPA:** authClient login(username,password)→role, session trả role; `useSession` hook
++ `canAccess` ma trận quyền; RequireAuth guard theo role (đẩy về trang mặc định của
+role); LoginPage username+password; AdminNav + AdminPage lọc mục theo role + nút Đăng
+xuất; UsersPage (owner) quản lý user; roleHome (technician→timeline).
+
+**Test:** unit tests/unit/rbac.test.ts (12); API tests/api/rbac.test.ts (23, gồm
+ownership "đụng KTV khác → 403" cho status/cancel/time-off + bằng chứng không side-effect);
+e2e tests/e2e/rbac.spec.ts (3 role: nav+scope+technician-1-cột). Sửa auth.test/schema.test/
+auth.setup/admin-auth cho login username+password + migration 0004. global-setup wipe users.
+
+**Kết quả:** typecheck xanh · 365 unit/API test xanh · 84 e2e (--workers=1) xanh ·
+Gate-2 no-code (sub-agent browser, 3 role): PASS — mỗi role thấy đúng phạm vi,
+technician KHÔNG đọc/sửa được dữ liệu KTV khác + KHÔNG vào được dashboard tiền.
+
+**Chưa làm (ngoài phạm vi đã khai / cần quyết định orchestrator):** PRD §2 chưa cập
+nhật (docs/PRD.md không nằm trong touches — báo để orchestrator quyết). admin-overview.ts
++ admin-crud.ts trong touches nhưng KHÔNG sửa nội dung file (gate bằng middleware ở
+registerRoutes, đúng CONVENTIONS §7 "một chỗ").

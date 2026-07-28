@@ -1,20 +1,22 @@
-// T-19 — trang đăng nhập admin. Một ô mật khẩu chung (phương án (a)). Đúng →
-// server set cookie phiên → điều hướng tới `?next=` (mặc định /admin). Sai →
-// hiện "Mật khẩu không đúng" bằng tiếng Việt tự nhiên, KHÔNG lộ mã lỗi thô.
+// T-19 → T-22 — trang đăng nhập. Username + password tra bảng users. Đúng →
+// server set cookie phiên mang role → điều hướng theo role (technician: timeline;
+// else: `?next=` hoặc /admin). Sai → "Tên đăng nhập hoặc mật khẩu không đúng"
+// tiếng Việt tự nhiên, KHÔNG lộ mã lỗi thô (không phân biệt sai-user với sai-pw).
 //
-// Nếu đã có phiên hợp lệ mà mở /login → đẩy thẳng vào đích (khỏi bắt đăng nhập
-// lại).
+// Nếu đã có phiên hợp lệ mà mở /login → đẩy thẳng vào trang mặc định của role.
 
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { fetchSession, login } from '../../../lib/authClient'
+import { defaultRouteForRole } from './roleHome'
+import type { Role } from '../../../lib/authClient'
 import './login.css'
 
-function safeNext(raw: string | null): string {
+function safeNext(raw: string | null): string | null {
   // Chỉ nhận path nội bộ bắt đầu bằng một dấu '/' — chặn open-redirect
-  // (//evil.com hay http://…). Không hợp lệ → về /admin.
-  if (!raw) return '/admin'
-  if (!raw.startsWith('/') || raw.startsWith('//')) return '/admin'
+  // (//evil.com hay http://…). Không hợp lệ → null (dùng trang mặc định của role).
+  if (!raw) return null
+  if (!raw.startsWith('/') || raw.startsWith('//')) return null
   return raw
 }
 
@@ -23,20 +25,32 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const next = safeNext(params.get('next'))
 
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  function go(role: Role) {
+    // technician chỉ có lịch của mình → luôn về timeline, kể cả khi `next` trỏ
+    // tới trang ngoài quyền (guard sẽ tự đẩy về, nhưng tránh nháy).
+    if (role === 'technician') {
+      navigate('/admin/timeline', { replace: true })
+      return
+    }
+    navigate(next ?? defaultRouteForRole(role), { replace: true })
+  }
+
   // Đã đăng nhập rồi thì khỏi bắt nhập lại.
   useEffect(() => {
     let alive = true
-    fetchSession().then((ok) => {
-      if (alive && ok) navigate(next, { replace: true })
+    fetchSession().then((s) => {
+      if (alive && s.authenticated && s.role) go(s.role)
     })
     return () => {
       alive = false
     }
-  }, [navigate, next])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -44,11 +58,11 @@ export default function LoginPage() {
     setError(null)
     setBusy(true)
     try {
-      const ok = await login(password)
-      if (ok) {
-        navigate(next, { replace: true })
+      const role = await login(username.trim(), password)
+      if (role) {
+        go(role)
       } else {
-        setError('Mật khẩu không đúng.')
+        setError('Tên đăng nhập hoặc mật khẩu không đúng.')
       }
     } catch {
       setError('Không kết nối được máy chủ. Vui lòng thử lại.')
@@ -61,7 +75,17 @@ export default function LoginPage() {
     <div className="ccf-login">
       <form className="ccf-login-card" onSubmit={onSubmit} data-testid="login-form">
         <h1>Sen Spa · Quản lý</h1>
-        <p>Nhập mật khẩu để vào khu quản lý.</p>
+        <p>Nhập tên đăng nhập và mật khẩu để vào khu quản lý.</p>
+        <label htmlFor="ccf-login-user">Tên đăng nhập</label>
+        <input
+          id="ccf-login-user"
+          type="text"
+          autoComplete="username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          data-testid="login-username"
+          autoFocus
+        />
         <label htmlFor="ccf-login-pw">Mật khẩu</label>
         <input
           id="ccf-login-pw"
@@ -70,14 +94,13 @@ export default function LoginPage() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           data-testid="login-password"
-          autoFocus
         />
         {error && (
           <div className="ccf-login-error" role="alert" data-testid="login-error">
             {error}
           </div>
         )}
-        <button type="submit" disabled={busy || password === ''} data-testid="login-submit">
+        <button type="submit" disabled={busy || username === '' || password === ''} data-testid="login-submit">
           {busy ? 'Đang đăng nhập…' : 'Đăng nhập'}
         </button>
       </form>

@@ -7,6 +7,8 @@
 
 import { test, expect } from '@playwright/test'
 
+// T-22: login nay là username+password. owner = seed user gốc (role owner).
+const ADMIN_USERNAME = 'owner'
 const ADMIN_PASSWORD = 'dev-admin-password' // khớp .dev.vars local
 
 test.describe('T-19 guard đăng nhập khu quản lý', () => {
@@ -23,6 +25,7 @@ test.describe('T-19 guard đăng nhập khu quản lý', () => {
 
   test('mật khẩu sai → hiện lỗi, KHÔNG vào được admin', async ({ page }) => {
     await page.goto('/login')
+    await page.getByTestId('login-username').fill(ADMIN_USERNAME)
     await page.getByTestId('login-password').fill('sai-mat-khau')
     await page.getByTestId('login-submit').click()
     await expect(page.getByTestId('login-error')).toBeVisible()
@@ -34,6 +37,7 @@ test.describe('T-19 guard đăng nhập khu quản lý', () => {
     await page.goto('/admin/timeline')
     await expect(page).toHaveURL(/\/login\?next=/)
 
+    await page.getByTestId('login-username').fill(ADMIN_USERNAME)
     await page.getByTestId('login-password').fill(ADMIN_PASSWORD)
     await page.getByTestId('login-submit').click()
 

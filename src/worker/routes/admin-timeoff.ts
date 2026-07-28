@@ -21,10 +21,12 @@ import {
   loadReassignQueue,
   staffExists,
 } from '../db/timeoff.ts'
+import type { AuthUser } from '../lib/auth.ts'
 
 type Bindings = { DB: D1Database }
+type Variables = { user: AuthUser }
 
-const routes = new Hono<{ Bindings: Bindings }>()
+const routes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 function errorBody(code: string, message: string) {
   return { error: { code, message } }
@@ -50,6 +52,13 @@ routes.post('/api/admin/time-off', async (c) => {
   const staffId = Number(payload.staff_id)
   if (!Number.isInteger(staffId) || staffId <= 0) {
     return c.json(errorBody('VALIDATION', 'staff_id phải là số nguyên dương'), 422)
+  }
+
+  // Ownership-check (card cạm bẫy #1): technician chỉ tự báo nghỉ cho CHÍNH MÌNH.
+  // owner/lễ tân báo nghỉ cho bất kỳ ai. Lệch → 403 (server là gate, không chỉ ẩn UI).
+  const user = c.get('user')
+  if (user !== undefined && user.role === 'technician' && (user.staffId === null || user.staffId !== staffId)) {
+    return c.json(errorBody('FORBIDDEN', 'Bạn chỉ có thể báo nghỉ cho chính mình.'), 403)
   }
 
   const startAt = Number(payload.start_at)

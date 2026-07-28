@@ -9,6 +9,7 @@ import TimelinePage from './routes/admin/timeline/TimelinePage'
 import ReassignQueuePage from './routes/admin/reassign/ReassignQueuePage'
 import SetupPage from './routes/admin/setup/SetupPage'
 import OverviewPage from './routes/admin/overview/OverviewPage'
+import UsersPage from './routes/admin/users/UsersPage'
 import LoginPage from './routes/admin/auth/LoginPage'
 import RequireAuth from './routes/admin/auth/RequireAuth'
 import './styles/tokens.css'
@@ -24,12 +25,14 @@ createRoot(root).render(
       <Routes>
         <Route path="/" element={<GuestPage />} />
         <Route path="/login" element={<LoginPage />} />
-        {/* T-19 — mọi route /admin/* qua guard: chưa đăng nhập → /login */}
-        <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
-        <Route path="/admin/overview" element={<RequireAuth><OverviewPage /></RequireAuth>} />
-        <Route path="/admin/timeline" element={<RequireAuth><TimelinePage /></RequireAuth>} />
-        <Route path="/admin/reassign" element={<RequireAuth><ReassignQueuePage /></RequireAuth>} />
-        <Route path="/admin/setup" element={<RequireAuth><SetupPage /></RequireAuth>} />
+        {/* T-19 — guard đăng nhập; T-22 — guard THEO ROLE (allow=…). Server vẫn
+            là gate thật; đây là defense-in-depth để role sai không xem nhầm. */}
+        <Route path="/admin" element={<RequireAuth allow={['owner', 'receptionist']}><AdminPage /></RequireAuth>} />
+        <Route path="/admin/overview" element={<RequireAuth allow={['owner']}><OverviewPage /></RequireAuth>} />
+        <Route path="/admin/timeline" element={<RequireAuth allow={['owner', 'receptionist', 'technician']}><TimelinePage /></RequireAuth>} />
+        <Route path="/admin/reassign" element={<RequireAuth allow={['owner', 'receptionist']}><ReassignQueuePage /></RequireAuth>} />
+        <Route path="/admin/setup" element={<RequireAuth allow={['owner', 'receptionist']}><SetupPage /></RequireAuth>} />
+        <Route path="/admin/users" element={<RequireAuth allow={['owner']}><UsersPage /></RequireAuth>} />
         <Route path="/lookup" element={<LookupPage />} />
         <Route path="/dev/components" element={<ComponentsDemo />} />
       </Routes>
