@@ -38,6 +38,7 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-19 | **Auth** chặn mọi `/api/admin/*` + trang admin | review | **opus** | T-20 |
 | T-20 | Khử non-determinism test → CI serial tất định | done | sonnet | — |
 | T-21 | Centralize now() + inject clock (near-midnight walk-in) | done | sonnet | T-20 |
+| T-22 | **RBAC** 3 vai trò (owner/lễ tân/KTV) filter-by-role | review | **opus** | T-19 |
 
 ## Cổng trước production (T-18, T-19)
 

@@ -6,9 +6,14 @@ Audience: AI agents implementing this. Terse by design.
 
 Booking system for a spa. Customers book services; system assigns technicians
 (KTV) who have the required skill and are free. The customer UI is public;
-the admin UI is behind a login (T-19) — a shared admin password issues a signed
-session cookie, and every `/api/admin/*` route + every `/admin/*` SPA page
-requires it. Payment webhooks and customer routes stay public.
+the admin UI is behind a login. Auth + RBAC (T-19 → T-22): one `users` table,
+three roles — **owner** (full: revenue/payroll, settings, ops, user management),
+**receptionist** (all ops, but no money reports and no price editing),
+**technician** (only their OWN schedule/bookings, self time-off). The role lives
+in a signed session cookie; every `/api/admin/*` route + `/admin/*` SPA page
+requires it, and authorization is filter-by-role (owner-only route gates,
+technician row-filter + ownership-check). Payment webhooks and customer routes
+stay public.
 
 **In (MVP)**
 - CRUD: skills, staff (+skills), services (+variants), work shifts
