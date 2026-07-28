@@ -1,7 +1,6 @@
 // T-19 — logic thuần auth (không DB). Khẳng định hành vi ký/kiểm phiên.
 import { describe, expect, it } from 'vitest'
 import {
-  checkPassword,
   issueSessionToken,
   verifySessionToken,
 } from '../../src/worker/lib/auth.ts'
@@ -9,23 +8,9 @@ import {
 const SECRET = 'unit-secret'
 const NOW = 1_800_000_000
 
-describe('checkPassword', () => {
-  it('đúng mật khẩu → true', () => {
-    expect(checkPassword('hunter2', 'hunter2')).toBe(true)
-  })
-  it('sai mật khẩu → false', () => {
-    expect(checkPassword('hunter2', 'khac')).toBe(false)
-  })
-  it('secret chưa cấu hình (undefined/rỗng) → luôn false (fail-closed)', () => {
-    expect(checkPassword('bat-ky', undefined)).toBe(false)
-    expect(checkPassword('bat-ky', '')).toBe(false)
-  })
-  it('input rỗng/không phải chuỗi → false', () => {
-    expect(checkPassword('', 'x')).toBe(false)
-    expect(checkPassword(123, 'x')).toBe(false)
-    expect(checkPassword(null, 'x')).toBe(false)
-  })
-})
+// Mật khẩu đăng nhập giờ so với hash trong bảng `users` (verifyPassword, có test
+// ở tests/api/rbac.test.ts + auth.test.ts). Hàm checkPassword cũ (so mật khẩu
+// chung ADMIN_PASSWORD của T-19) đã BỎ khi T-22 chuyển sang RBAC nhiều user.
 
 describe('issueSessionToken + verifySessionToken', () => {
   it('token vừa phát → verify true trong thời hạn', async () => {

@@ -95,17 +95,6 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Kiểm tra mật khẩu đăng nhập so với secret ADMIN_PASSWORD.
- * `expected` là giá trị từ c.env.ADMIN_PASSWORD (có thể undefined nếu chưa cấu
- * hình → luôn từ chối, fail-closed).
- */
-export function checkPassword(input: unknown, expected: string | undefined): boolean {
-  if (typeof input !== 'string' || input === '') return false
-  if (typeof expected !== 'string' || expected === '') return false
-  return timingSafeEqual(input, expected)
-}
-
-/**
  * Phát một token phiên đã ký. `now` epoch giây (route truyền vào để test được
  * xác định). TTL mặc định một ca làm việc. T-22: token mang userId/role/staffId
  * — ký HMAC nên client KHÔNG giả được role.
