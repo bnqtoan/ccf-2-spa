@@ -13,7 +13,8 @@ import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import migration0001 from '../../migrations/0001_init.sql?raw'
 import migration0003 from '../../migrations/0003_payments.sql?raw'
-import { SESSION_COOKIE, issueSessionToken } from '../../src/worker/lib/auth.ts'
+import migration0004 from '../../migrations/0004_users.sql?raw'
+import { SESSION_COOKIE, hashPassword, issueSessionToken } from '../../src/worker/lib/auth.ts'
 
 const db = env.DB
 
@@ -34,6 +35,15 @@ function splitStatements(sql: string): string[] {
 beforeAll(async () => {
   for (const stmt of splitStatements(migration0001)) await db.prepare(stmt).run()
   for (const stmt of splitStatements(migration0003)) await db.prepare(stmt).run()
+  for (const stmt of splitStatements(migration0004)) await db.prepare(stmt).run()
+  // T-22 — login nay là username+password tra bảng users. Seed 1 owner với mật
+  // khẩu = ADMIN_PASSWORD test ('test-admin-pw', khớp vitest.config.ts).
+  await db.prepare('DELETE FROM users').run()
+  const hash = await hashPassword('test-admin-pw')
+  await db
+    .prepare("INSERT INTO users (username, password_hash, role, staff_id, active, created_at) VALUES ('owner', ?, 'owner', NULL, 1, 0)")
+    .bind(hash)
+    .run()
 })
 
 const BASE = 'https://example.com'
@@ -164,7 +174,7 @@ describe('POST /api/auth/login + logout', () => {
     const res = await exports.default.fetch(`${BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'sai-mat-khau' }),
+      body: JSON.stringify({ username: 'owner', password: 'sai-mat-khau' }),
     })
     expect(res.status).toBe(401)
     const body = (await res.json()) as { error?: { code?: string } }
@@ -175,7 +185,7 @@ describe('POST /api/auth/login + logout', () => {
     const login = await exports.default.fetch(`${BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'test-admin-pw' }),
+      body: JSON.stringify({ username: 'owner', password: 'test-admin-pw' }),
     })
     expect(login.status).toBe(200)
     const setCookie = login.headers.get('set-cookie') ?? ''
@@ -217,9 +227,13 @@ describe('GET /api/auth/session', () => {
     expect(await res.json()).toEqual({ authenticated: false })
   })
 
-  it('cookie hợp lệ → { authenticated: true }', async () => {
+  it('cookie hợp lệ → authenticated true + role', async () => {
     const res = await get('/api/auth/session', await validCookie())
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ authenticated: true })
+    // T-22: session nay trả thêm role/staffId. validCookie() ký token không kèm
+    // user → role mặc định 'owner', staffId null (giữ tương thích test cũ).
+    const body = (await res.json()) as { authenticated: boolean; role?: string }
+    expect(body.authenticated).toBe(true)
+    expect(body.role).toBe('owner')
   })
 })

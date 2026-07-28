@@ -12,10 +12,12 @@ import { Hono } from 'hono'
 import type { AppointmentStatus } from '../db/types.ts'
 import { canTransition } from '../lib/status.ts'
 import { serverNow } from '../lib/clock.ts'
+import type { AuthUser } from '../lib/auth.ts'
 
 type Bindings = { DB: D1Database }
+type Variables = { user: AuthUser }
 
-const routes = new Hono<{ Bindings: Bindings }>()
+const routes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 function errorBody(code: string, message: string) {
   return { error: { code, message } }
@@ -23,8 +25,23 @@ function errorBody(code: string, message: string) {
 
 const ADMIN_SETTABLE: AppointmentStatus[] = ['in_service', 'done', 'no_show']
 
+// staff_id để ownership-check: technician chỉ đổi status/huỷ booking CỦA MÌNH.
 async function loadItem(db: D1Database, itemId: number) {
-  return db.prepare('SELECT id, status FROM booking_items WHERE id = ?').bind(itemId).first<{ id: number; status: string }>()
+  return db
+    .prepare('SELECT id, status, staff_id FROM booking_items WHERE id = ?')
+    .bind(itemId)
+    .first<{ id: number; status: string; staff_id: number }>()
+}
+
+/**
+ * Ownership-check (card cạm bẫy #1 — silent side-effect). technician chỉ được
+ * thao tác booking của CHÍNH MÌNH (item.staff_id === user.staffId). owner/lễ
+ * tân: qua hết. Lệch → 403 (server là gate, ẩn UI không đủ). Trả true nếu chặn.
+ */
+function forbidsOwnership(user: AuthUser | undefined, itemStaffId: number): boolean {
+  if (user === undefined) return true // fail-closed
+  if (user.role !== 'technician') return false
+  return user.staffId === null || user.staffId !== itemStaffId
 }
 
 function parseItemId(raw: string): number | null {
@@ -56,6 +73,10 @@ routes.post('/api/admin/bookings/:id/status', async (c) => {
     return c.json(errorBody('NOT_FOUND', `Không tìm thấy booking_item ${itemId}`), 404)
   }
 
+  if (forbidsOwnership(c.get('user'), item.staff_id)) {
+    return c.json(errorBody('FORBIDDEN', 'Bạn chỉ có thể cập nhật lịch của chính mình.'), 403)
+  }
+
   if (!canTransition(item.status as AppointmentStatus, targetStatus as AppointmentStatus)) {
     return c.json(
       errorBody('INVALID_TRANSITION', `Không thể chuyển từ ${item.status} sang ${targetStatus}`),
@@ -79,6 +100,10 @@ routes.post('/api/admin/bookings/:id/cancel', async (c) => {
   const item = await loadItem(db, itemId)
   if (item === null) {
     return c.json(errorBody('NOT_FOUND', `Không tìm thấy booking_item ${itemId}`), 404)
+  }
+
+  if (forbidsOwnership(c.get('user'), item.staff_id)) {
+    return c.json(errorBody('FORBIDDEN', 'Bạn chỉ có thể huỷ lịch của chính mình.'), 403)
   }
 
   if (!canTransition(item.status as AppointmentStatus, 'cancelled')) {

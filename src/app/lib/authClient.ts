@@ -6,33 +6,43 @@
 // `credentials: 'same-origin'` là mặc định của fetch cho same-origin, nhưng khai
 // tường minh để ý định rõ ràng và an toàn nếu sau này đổi origin.
 
+// T-22 — ba vai trò. role quyết định nav + guard route phía SPA (defense-in-depth;
+// server mới là gate thật).
+export type Role = 'owner' | 'receptionist' | 'technician'
+
 export interface SessionState {
   authenticated: boolean
-}
-
-/** GET /api/auth/session — phiên hiện tại còn hợp lệ không? Luôn 200. */
-export async function fetchSession(): Promise<boolean> {
-  const res = await fetch('/api/auth/session', { credentials: 'same-origin' })
-  if (!res.ok) return false
-  const body = (await res.json()) as SessionState
-  return body.authenticated === true
+  role?: Role
+  staffId?: number | null
 }
 
 /**
- * POST /api/auth/login. Trả `true` khi đăng nhập thành công (server đã set
- * cookie phiên). Trả `false` khi mật khẩu sai (401). Ném lỗi khi mạng/hệ thống
- * hỏng để UI phân biệt "sai mật khẩu" với "không gọi được máy chủ".
+ * GET /api/auth/session — phiên còn hợp lệ không + vai trò gì? Luôn 200. Trả cả
+ * role để nav/guard lọc theo vai trò. Chưa đăng nhập → { authenticated: false }.
  */
-export async function login(password: string): Promise<boolean> {
+export async function fetchSession(): Promise<SessionState> {
+  const res = await fetch('/api/auth/session', { credentials: 'same-origin' })
+  if (!res.ok) return { authenticated: false }
+  const body = (await res.json()) as SessionState
+  return body.authenticated === true ? body : { authenticated: false }
+}
+
+/**
+ * POST /api/auth/login — username + password (T-22). Trả role khi thành công
+ * (server đã set cookie phiên). Trả `null` khi sai (401). Ném lỗi khi mạng hỏng
+ * để UI phân biệt "sai đăng nhập" với "không gọi được máy chủ".
+ */
+export async function login(username: string, password: string): Promise<Role | null> {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
   })
-  if (res.status === 401) return false
+  if (res.status === 401) return null
   if (!res.ok) throw new Error('login-failed')
-  return true
+  const body = (await res.json()) as { role: Role }
+  return body.role
 }
 
 /** POST /api/auth/logout — xoá cookie phiên. Idempotent. */

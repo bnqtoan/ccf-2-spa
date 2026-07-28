@@ -1,34 +1,26 @@
-// T-19 — guard cho mọi route SPA /admin/*. Bọc quanh trang admin: hỏi server
-// phiên còn hợp lệ không; chưa đăng nhập → redirect /login (giữ lại đích để
-// quay lại sau khi login). Đang kiểm → hiện trạng thái chờ ngắn, không nháy nội
-// dung admin ra trước.
+// T-19 → T-22 — guard cho mọi route SPA /admin/*. Bọc quanh trang admin: hỏi
+// server phiên còn hợp lệ không; chưa đăng nhập → redirect /login. T-22: guard
+// thêm THEO ROLE — `allow` liệt kê role được vào; role không đủ → đẩy về trang
+// mặc định của họ (KHÔNG cho xem nội dung ngoài quyền). Server vẫn là gate thật.
 //
 // Nguồn sự thật là server (GET /api/auth/session) — KHÔNG tự đoán từ cookie phía
 // client (cookie httpOnly, JS không đọc được, đúng ý đồ chống XSS).
 
-import { useEffect, useState } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
-import { fetchSession } from '../../../lib/authClient'
+import { useSession } from '../../../lib/useSession'
+import { defaultRouteForRole } from './roleHome'
+import type { Role } from '../../../lib/authClient'
 
-type Status = 'checking' | 'authed' | 'anon'
-
-export default function RequireAuth({ children }: { children: React.ReactNode }) {
-  const [status, setStatus] = useState<Status>('checking')
+export default function RequireAuth({
+  children,
+  allow,
+}: {
+  children: React.ReactNode
+  /** Nếu có: chỉ các role này được vào. Bỏ trống = bất kỳ user đã đăng nhập. */
+  allow?: Role[]
+}) {
+  const { status, authenticated, role } = useSession()
   const location = useLocation()
-
-  useEffect(() => {
-    let alive = true
-    fetchSession()
-      .then((ok) => {
-        if (alive) setStatus(ok ? 'authed' : 'anon')
-      })
-      .catch(() => {
-        if (alive) setStatus('anon')
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
 
   if (status === 'checking') {
     return (
@@ -38,9 +30,15 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
     )
   }
 
-  if (status === 'anon') {
+  if (!authenticated) {
     const next = encodeURIComponent(location.pathname + location.search)
     return <Navigate to={`/login?next=${next}`} replace />
+  }
+
+  // Đăng nhập rồi nhưng role không được phép vào trang này → đưa về trang mặc
+  // định của role (technician: timeline; else: /admin). Không nháy nội dung cấm.
+  if (allow !== undefined && (role === null || !allow.includes(role))) {
+    return <Navigate to={defaultRouteForRole(role)} replace />
   }
 
   return <>{children}</>

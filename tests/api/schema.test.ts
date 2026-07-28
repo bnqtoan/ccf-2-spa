@@ -3,6 +3,8 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { seed } from '../../src/worker/db/seed'
 import migrationSql from '../../migrations/0001_init.sql?raw'
 import migration2Sql from '../../migrations/0002_commission_tax.sql?raw'
+// T-22 — 0004 tạo bảng `users`; seed() nay xoá users nên schema test phải áp nó.
+import migration4Sql from '../../migrations/0004_users.sql?raw'
 
 const db = env.DB
 
@@ -29,7 +31,11 @@ function splitStatements(sql: string): string[] {
 beforeAll(async () => {
   // Áp cả 0001 và 0002: seed() ghi cột commission_rate do 0002 thêm, nên phải
   // có migration thứ hai trước khi seed chạy.
-  for (const stmt of [...splitStatements(migrationSql), ...splitStatements(migration2Sql)]) {
+  for (const stmt of [
+    ...splitStatements(migrationSql),
+    ...splitStatements(migration2Sql),
+    ...splitStatements(migration4Sql),
+  ]) {
     await db.prepare(stmt).run()
   }
 })

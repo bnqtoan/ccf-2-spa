@@ -18,10 +18,12 @@
 
 import { Hono } from 'hono'
 import { localDayBounds, parseDateStr } from '../lib/time.ts'
+import type { AuthUser } from '../lib/auth.ts'
 
 type Bindings = { DB: D1Database }
+type Variables = { user: AuthUser }
 
-const routes = new Hono<{ Bindings: Bindings }>()
+const routes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 function errorBody(code: string, message: string) {
   return { error: { code, message } }
@@ -61,9 +63,20 @@ routes.get('/api/admin/schedule', async (c) => {
 
   const { start: dayStart, end: dayEnd } = localDayBounds(dateStr)
 
-  const staffRes = await db
-    .prepare('SELECT id, name FROM staff WHERE active = 1 ORDER BY id')
-    .all<{ id: number; name: string }>()
+  // Row-filter (card): technician CHỈ thấy cột của chính mình. owner/lễ tân
+  // thấy MỌI KTV. Lọc bằng `AND staff_id = ?` ở CẢ ba truy vấn (staff/items/
+  // time_off) — ẩn cột người khác ở server, không chỉ ở UI. technician thiếu
+  // staffId (dữ liệu hỏng) → thấy rỗng (fail-closed), không thấy toàn spa.
+  const user = c.get('user')
+  const onlyStaffId =
+    user !== undefined && user.role === 'technician' ? (user.staffId ?? -1) : null
+
+  const staffSql =
+    onlyStaffId === null
+      ? 'SELECT id, name FROM staff WHERE active = 1 ORDER BY id'
+      : 'SELECT id, name FROM staff WHERE active = 1 AND id = ? ORDER BY id'
+  const staffStmt = onlyStaffId === null ? db.prepare(staffSql) : db.prepare(staffSql).bind(onlyStaffId)
+  const staffRes = await staffStmt.all<{ id: number; name: string }>()
   const staffList = staffRes.results
 
   const staffIds = staffList.map((s) => s.id)
@@ -76,6 +89,12 @@ routes.get('/api/admin/schedule', async (c) => {
     // ~98 KTV active sẽ nhận 500 — đã tái hiện thật với 120 KTV. Lọc bằng
     // `JOIN staff ... WHERE st.active = 1`, số param cố định là 2 dù bao nhiêu
     // KTV. Cùng tập KTV với `staffList` ở trên vì cùng điều kiện `active = 1`.
+    // Cùng row-filter với staffList: technician chỉ thấy item/time_off của mình.
+    const itemStaffFilter = onlyStaffId === null ? '' : ' AND bi.staff_id = ?'
+    const offStaffFilter = onlyStaffId === null ? '' : ' AND t.staff_id = ?'
+    const itemBinds: number[] = onlyStaffId === null ? [dayEnd, dayStart] : [dayEnd, dayStart, onlyStaffId]
+    const offBinds: number[] = onlyStaffId === null ? [dayEnd, dayStart] : [dayEnd, dayStart, onlyStaffId]
+
     const [itemsRes, timeOffRes] = await Promise.all([
       // Half-open interval intersection with the local day (CONVENTIONS §2):
       // `start_at < dayEnd AND block_end_at > dayStart`. Using `block_end_at`
@@ -97,10 +116,10 @@ routes.get('/api/admin/schedule', async (c) => {
            JOIN staff st ON st.id = bi.staff_id AND st.active = 1
            WHERE bi.status IN ('booked','in_service','done','no_show')
              AND bi.start_at < ?
-             AND bi.block_end_at > ?
+             AND bi.block_end_at > ?${itemStaffFilter}
            ORDER BY bi.staff_id, bi.start_at`,
         )
-        .bind(dayEnd, dayStart)
+        .bind(...itemBinds)
         .all<ItemRow>(),
       db
         .prepare(
@@ -108,10 +127,10 @@ routes.get('/api/admin/schedule', async (c) => {
                   t.end_at AS end_at, t.reason AS reason
            FROM time_off t
            JOIN staff st ON st.id = t.staff_id AND st.active = 1
-           WHERE t.start_at < ? AND t.end_at > ?
+           WHERE t.start_at < ? AND t.end_at > ?${offStaffFilter}
            ORDER BY t.staff_id, t.start_at`,
         )
-        .bind(dayEnd, dayStart)
+        .bind(...offBinds)
         .all<TimeOffRow>(),
     ])
 

@@ -25,7 +25,9 @@ export default defineConfig({
       // KHÔNG dùng storageState và KHÔNG phụ thuộc auth-setup. Tách riêng để
       // không bị hai project admin nuốt (chúng ignore file này).
       name: 'chromium-auth-guard',
-      testMatch: ['**/admin-auth.spec.ts'],
+      // T-22: rbac.spec cũng tự đăng nhập per-role (KHÔNG storageState owner) →
+      // đặt cùng project guard. Mỗi test có context riêng nên cookie không đụng nhau.
+      testMatch: ['**/admin-auth.spec.ts', '**/rbac.spec.ts'],
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -60,6 +62,8 @@ export default defineConfig({
         // project setup, không phải test thường.
         '**/admin-auth.spec.ts',
         '**/auth.setup.ts',
+        // T-22 — rbac.spec tự đăng nhập per-role, chạy ở chromium-auth-guard.
+        '**/rbac.spec.ts',
       ],
       // T-19 — nhiều spec ở đây (admin-setup, flows/*) cũng mở /admin/* → cần
       // phiên. Cấp storageState cho cả project.

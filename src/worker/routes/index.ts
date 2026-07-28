@@ -13,8 +13,9 @@ import adminAppointmentItems from './admin-appointment-items.ts'
 import adminStaffItems from './admin-staff-items.ts'
 import combo from './combo.ts'
 import adminOverview from './admin-overview.ts'
+import adminUsers from './admin-users.ts'
 import payments from './payments.ts'
-import auth, { adminAuthGuard } from './auth.ts'
+import auth, { adminAuthGuard, requireRoleMw } from './auth.ts'
 
 /**
  * Điểm gom route duy nhất (CONVENTIONS §7).
@@ -29,7 +30,28 @@ const BUILD_TAG = '2026-07-24-connect-git'
 export function registerRoutes(app: Hono) {
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.get('/api/version', (c) => c.json({ build: BUILD_TAG }))
-  app.use('/api/admin/*', adminAuthGuard) // T-19 — cổng auth chặn MỌI route admin
+  app.use('/api/admin/*', adminAuthGuard) // T-19 — cổng auth chặn MỌI route admin; T-22 set c.get('user')
+
+  // T-22 RBAC — role-gate cho các cụm owner-only. Mount SAU adminAuthGuard
+  // (đã set user) và TRƯỚC route tương ứng. Mỗi middleware là ĐÚNG MỘT dòng.
+  //
+  // Doanh thu/lương (báo cáo tiền) — owner ONLY. Lễ tân/KTV → 403.
+  app.use('/api/admin/overview', requireRoleMw('owner'))
+  app.use('/api/admin/staff-earnings', requireRoleMw('owner'))
+  // Quản lý user — owner ONLY.
+  app.use('/api/admin/users', requireRoleMw('owner'))
+  app.use('/api/admin/users/*', requireRoleMw('owner'))
+  // Bảng GIÁ (services/variants/skills) — chỉ CHẶN SỬA (POST/PATCH/DELETE),
+  // GIỮ GET mở để lễ tân vẫn thấy dịch vụ/giá khi nhận walk-in (card: "có giá
+  // hiện khi đặt", chỉ "khoá SỬA giá"). CRUD staff/shifts = owner+lễ tân → KHÔNG gate.
+  const priceMutation = ['POST', 'PATCH', 'DELETE']
+  app.on(priceMutation, '/api/admin/skills', requireRoleMw('owner'))
+  app.on(priceMutation, '/api/admin/skills/*', requireRoleMw('owner'))
+  app.on(priceMutation, '/api/admin/services', requireRoleMw('owner'))
+  app.on(priceMutation, '/api/admin/services/*', requireRoleMw('owner'))
+  app.on(priceMutation, '/api/admin/variants', requireRoleMw('owner'))
+  app.on(priceMutation, '/api/admin/variants/*', requireRoleMw('owner'))
+
   app.route('/', auth) // T-19 — login / logout / session (public)
   app.route('/', adminCrud)
   app.route('/', availability) // T-03
@@ -45,6 +67,7 @@ export function registerRoutes(app: Hono) {
   app.route('/', adminStaffItems) // TRACK-A: G0 upcoming-items guard
   app.route('/', combo) // R1a — serial combo (customer multi-select)
   app.route('/', adminOverview) // Track C — R5 occupancy + R2 revenue/payroll
+  app.route('/', adminUsers) // T-22 — quản lý user (owner-only, gated ở trên)
   app.route('/', payments) // PAYMENT track — SePay + PayPal adapters
   // các task sau thêm dòng của mình vào đây
 }

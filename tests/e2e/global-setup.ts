@@ -21,6 +21,7 @@ import { execFileSync } from 'node:child_process'
  */
 export default function globalSetup(): void {
   const wipe = [
+    'users', // T-22 — xoá TRƯỚC staff (users.staff_id REFERENCES staff, FK RESTRICT)
     'booking_items',
     'appointments',
     'time_off',

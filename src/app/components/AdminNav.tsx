@@ -1,26 +1,43 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useSession, canAccess, type NavKey } from '../lib/useSession'
+import { logout } from '../lib/authClient'
 import './AdminNav.css'
 
 /**
- * Thanh điều hướng dùng chung cho 3 màn quản trị (timeline / reassign / setup)
- * — trước đây chúng KHÔNG có lối qua lại nhau, lễ tân phải gõ tay URL hoặc
- * quay về /admin (G4). Đặt ở đầu mỗi màn để chuyển qua lại một chạm.
+ * Thanh điều hướng dùng chung cho các màn quản trị. T-22: LỌC THEO ROLE — mỗi
+ * vai trò chỉ thấy mục mình có quyền (defense-in-depth; server mới là gate thật).
+ * technician chỉ thấy "Lịch ngày"; lễ tân thấy timeline/reassign/setup; owner
+ * thấy thêm Tổng quan + Người dùng. Kèm nút Đăng xuất.
  */
-const LINKS = [
-  { to: '/admin/timeline', label: 'Lịch ngày', icon: '📅' },
-  { to: '/admin/reassign', label: 'Hàng chờ xếp lại', icon: '🔁' },
-  { to: '/admin/setup', label: 'Thiết lập', icon: '⚙️' },
+const LINKS: { to: string; label: string; icon: string; key: NavKey }[] = [
+  { to: '/admin/overview', label: 'Tổng quan', icon: '📊', key: 'overview' },
+  { to: '/admin/timeline', label: 'Lịch ngày', icon: '📅', key: 'timeline' },
+  { to: '/admin/reassign', label: 'Hàng chờ xếp lại', icon: '🔁', key: 'reassign' },
+  { to: '/admin/setup', label: 'Thiết lập', icon: '⚙️', key: 'setup' },
+  { to: '/admin/users', label: 'Người dùng', icon: '👥', key: 'users' },
 ]
 
 export default function AdminNav() {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const { role } = useSession()
+
+  // technician không có "hub" /admin (họ vào thẳng timeline) → logo trỏ timeline.
+  const homeTo = role === 'technician' ? '/admin/timeline' : '/admin'
+  const visible = LINKS.filter((l) => canAccess(role, l.key))
+
+  async function onLogout() {
+    await logout()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <nav className="ccf-adm-nav" data-testid="admin-nav">
-      <Link to="/admin" className="ccf-adm-nav-home" data-testid="admin-nav-home" aria-label="Trang quản lý">
+      <Link to={homeTo} className="ccf-adm-nav-home" data-testid="admin-nav-home" aria-label="Trang quản lý">
         Sen Spa
       </Link>
       <div className="ccf-adm-nav-links">
-        {LINKS.map((l) => {
+        {visible.map((l) => {
           const active = pathname === l.to
           return (
             <Link
@@ -34,6 +51,14 @@ export default function AdminNav() {
             </Link>
           )
         })}
+        <button
+          type="button"
+          className="ccf-adm-nav-link ccf-adm-nav-logout"
+          onClick={onLogout}
+          data-testid="admin-nav-logout"
+        >
+          <span aria-hidden="true">🚪</span> Đăng xuất
+        </button>
       </div>
     </nav>
   )

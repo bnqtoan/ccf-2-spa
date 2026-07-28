@@ -10,6 +10,7 @@
 //     instead feeds the same SQL through `wrangler d1 execute --local`.
 
 const TABLES_IN_DELETE_ORDER = [
+  'users', // T-22 — xoá trước staff (users.staff_id REFERENCES staff)
   'booking_items',
   'appointments',
   'customers',
@@ -20,6 +21,17 @@ const TABLES_IN_DELETE_ORDER = [
   'staff_skills',
   'staff',
   'skills',
+] as const
+
+// T-22 — user seed. 3 role để dev/e2e đăng nhập kiểm phạm vi:
+//   owner        (mật khẩu = ADMIN_PASSWORD)  — toàn quyền.
+//   receptionist (mật khẩu = ADMIN_PASSWORD)  — vận hành, không tiền/giá.
+//   technician   (mật khẩu = ADMIN_PASSWORD, link staff 'Lan') — chỉ của mình.
+// Mật khẩu dùng CHUNG ADMIN_PASSWORD cho tiện dev; owner đổi/đặt lại qua UI.
+export const SEED_USERS = [
+  { username: 'owner', role: 'owner', staffName: null },
+  { username: 'reception', role: 'receptionist', staffName: null },
+  { username: 'ktv', role: 'technician', staffName: 'Lan' },
 ] as const
 
 export interface SeedStatement {
@@ -247,11 +259,38 @@ export function buildSeedStatements(): SeedStatement[] {
   return stmts
 }
 
-export async function seed(db: D1Database): Promise<void> {
+export async function seed(db: D1Database, adminPassword?: string): Promise<void> {
   for (const { sql, params } of buildSeedStatements()) {
     await db
       .prepare(sql)
       .bind(...params)
+      .run()
+  }
+  if (adminPassword !== undefined && adminPassword !== '') {
+    await seedUsers(db, adminPassword)
+  }
+}
+
+/**
+ * T-22 — chèn 3 user seed (owner/reception/ktv). Tách khỏi buildSeedStatements
+ * vì password_hash là PBKDF2 (async, cần crypto.subtle) — không nhét literal
+ * vào SQL đồng bộ được. `users` đã bị DELETE ở đầu buildSeedStatements (idempotent).
+ */
+export async function seedUsers(db: D1Database, adminPassword: string): Promise<void> {
+  const { hashPassword } = await import('../lib/auth.ts')
+  const now = Math.floor(Date.now() / 1000)
+  for (const u of SEED_USERS) {
+    const hash = await hashPassword(adminPassword)
+    await db
+      .prepare(
+        `INSERT INTO users (username, password_hash, role, staff_id, active, created_at)
+         VALUES (?, ?, ?, ${u.staffName === null ? 'NULL' : '(SELECT id FROM staff WHERE name = ?)'}, 1, ?)`,
+      )
+      .bind(
+        ...(u.staffName === null
+          ? [u.username, hash, u.role, now]
+          : [u.username, hash, u.role, u.staffName, now]),
+      )
       .run()
   }
 }
@@ -276,13 +315,43 @@ if (import.meta.main) {
     return `'${value.replace(/'/g, "''")}'`
   }
 
-  const sqlText = buildSeedStatements()
+  const baseSql = buildSeedStatements()
     .map(({ sql, params }) => {
       let i = 0
       const inlined = sql.replace(/\?/g, () => sqlLiteral(params[i++]!))
       return inlined + ';'
     })
     .join('\n')
+
+  // T-22 — user seed. ADMIN_PASSWORD từ .dev.vars (đọc thủ công; CLI không nạp
+  // .dev.vars như `wrangler dev`). PBKDF2 hash tính bằng chính hashPassword —
+  // crypto.subtle có global trong Node 20+.
+  const { readFileSync } = await import('node:fs')
+  function readDevVar(name: string): string | undefined {
+    try {
+      const text = readFileSync(new URL('../../../.dev.vars', import.meta.url), 'utf8')
+      for (const line of text.split('\n')) {
+        const m = /^([A-Z_]+)=(.*)$/.exec(line.trim())
+        if (m && m[1] === name) return m[2]
+      }
+    } catch {
+      /* .dev.vars vắng → dùng mặc định dưới */
+    }
+    return undefined
+  }
+  const adminPassword = readDevVar('ADMIN_PASSWORD') ?? 'dev-admin-password'
+  const { hashPassword } = await import('../lib/auth.ts')
+
+  let usersSql = ''
+  const nowSec = Math.floor(Date.now() / 1000)
+  for (const u of SEED_USERS) {
+    const hash = await hashPassword(adminPassword)
+    const staffExpr =
+      u.staffName === null ? 'NULL' : `(SELECT id FROM staff WHERE name = ${sqlLiteral(u.staffName)})`
+    usersSql += `INSERT INTO users (username, password_hash, role, staff_id, active, created_at) VALUES (${sqlLiteral(u.username)}, ${sqlLiteral(hash)}, ${sqlLiteral(u.role)}, ${staffExpr}, 1, ${nowSec});\n`
+  }
+
+  const sqlText = baseSql + '\n' + usersSql
 
   const tmpFile = join(tmpdir(), `ccf-2-spa-seed-${Date.now()}.sql`)
   writeFileSync(tmpFile, sqlText, 'utf8')
