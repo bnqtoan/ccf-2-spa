@@ -44,7 +44,7 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-25 | **G6** UI lễ tân thêm dịch vụ (combo admin) | review | sonnet | T-19, T-22 |
 | T-26 | **R1b** combo song song (nhiều KTV cùng lúc) | review | opus | T-19 |
 | T-27 | **R6** Telegram nội bộ (báo lễ tân) | review | sonnet | — |
-| T-28 | Fix RBAC gap — gate POST /appointments/:id/items | todo | sonnet | T-22, T-25 |
+| T-28 | Fix RBAC gap — gate POST /appointments/:id/items | review | sonnet | T-22, T-25 |
 
 ## Cổng trước production (T-18, T-19)
 
