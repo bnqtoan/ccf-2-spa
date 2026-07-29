@@ -12,6 +12,11 @@ export default defineConfig({
     // the same workerd pool — they have no DB dependency, so the pool is
     // simply irrelevant to them rather than wrong.
     include: ['tests/api/**/*.test.ts', 'tests/unit/**/*.test.ts'],
+    // Chạy TUẦN TỰ (một file một lúc). Các test API dùng CHUNG một D1 local và
+    // mỗi file `beforeEach` wipe sạch bảng; chạy song song thì file này wipe
+    // giữa lúc file kia đang assert → đỏ ngẫu nhiên dưới tải (12–32 fail khi máy
+    // bận, 0 khi rảnh; tuần tự luôn 361/361). Cùng lý do e2e chạy `--workers=1`.
+    fileParallelism: false,
   },
   plugins: [
     cloudflareTest({
