@@ -148,7 +148,19 @@ export async function loadStaffWindowContext(
   blockStart: number,
   blockEnd: number,
   weekday: number,
+  /**
+   * When rescheduling, the item being MOVED must not count as a busy item
+   * against its own new slot — otherwise a small shift inside its own block
+   * window reads as taken. Callers that create a NEW booking pass nothing.
+   */
+  excludeItemId?: number,
 ): Promise<{ shifts: Pick<WorkShift, 'staff_id' | 'start_min' | 'end_min'>[]; timeOff: TimeOffInterval[]; busyItems: BusyItem[] }> {
+  const excludeClause = excludeItemId === undefined ? '' : ' AND id != ?'
+  const busyBinds =
+    excludeItemId === undefined
+      ? [staffId, blockEnd, blockStart]
+      : [staffId, blockEnd, blockStart, excludeItemId]
+
   const [shiftRes, timeOffRes, busyRes] = await Promise.all([
     db
       .prepare('SELECT staff_id, start_min, end_min FROM work_shifts WHERE staff_id = ? AND weekday = ?')
@@ -166,9 +178,9 @@ export async function loadStaffWindowContext(
         `SELECT staff_id, start_at, block_end_at FROM booking_items
          WHERE staff_id = ?
            AND status IN ('booked','in_service')
-           AND start_at < ? AND block_end_at > ?`,
+           AND start_at < ? AND block_end_at > ?${excludeClause}`,
       )
-      .bind(staffId, blockEnd, blockStart)
+      .bind(...busyBinds)
       .all<BusyItem>(),
   ])
 
@@ -307,6 +319,97 @@ export async function insertBookingAtomically(
   }
 }
 
+export interface RescheduleInput {
+  item_id: number
+  staff_id: number
+  start_at: number
+  end_at: number
+  block_end_at: number
+}
+
+export type RescheduleResult =
+  | { ok: true; item: BookingItem }
+  | { ok: false; reason: 'SLOT_TAKEN' }
+
+/**
+ * Moves an EXISTING booking_item to a new time (and possibly a new technician),
+ * atomically (T-24). This is a RESCHEDULE, not a cancel-then-rebook: there is
+ * exactly ONE statement and it either wins or leaves the item untouched.
+ *
+ * The single most dangerous mistake this function exists to prevent is the
+ * silent side-effect: if we cancelled the old item and then failed to insert
+ * the new one, the customer would lose their booking with nothing to show. So
+ * the whole move is one guarded `UPDATE`:
+ *
+ *   UPDATE booking_items
+ *      SET staff_id, start_at, end_at, block_end_at   -- the new time
+ *    WHERE id = ?                                       -- this item
+ *      AND status = 'booked'                            -- still cancellable
+ *      AND <new slot is free for the target technician> -- race-proof re-check
+ *
+ * Like `insertBookingAtomically`, the availability re-check is a SQL predicate
+ * ON the writing statement — D1 cannot run JS between batched statements (see
+ * this module's header), so the DB itself must be the arbiter at the instant of
+ * the write. `meta.changes` then reports the verdict: 1 = moved, 0 = the guard
+ * blocked (slot taken meanwhile, or the item was no longer 'booked') and the
+ * row is EXACTLY as it was. There is no half state.
+ *
+ * The overlap sub-query EXCLUDES this item (`bi.id != ?`): an item never
+ * conflicts with itself, and without the exclusion a small shift inside the
+ * item's own block window would falsely read as taken.
+ */
+export async function rescheduleItemAtomically(
+  db: D1Database,
+  input: RescheduleInput,
+): Promise<RescheduleResult> {
+  const { item_id, staff_id, start_at, end_at, block_end_at } = input
+
+  // Half-open overlap (CONVENTIONS §2), block_end_at on both sides, strict
+  // `<`/`>` so adjacency stays free. The target technician's OTHER live items
+  // and any time-off both block the move.
+  const freeGuard = `
+    NOT EXISTS (
+      SELECT 1 FROM booking_items bi
+      WHERE bi.staff_id = ?
+        AND bi.id != ?
+        AND bi.status IN ('booked','in_service')
+        AND bi.start_at < ?
+        AND bi.block_end_at > ?
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM time_off t
+      WHERE t.staff_id = ?
+        AND t.start_at < ?
+        AND t.end_at > ?
+    )`
+  const guardArgs = [staff_id, item_id, block_end_at, start_at, staff_id, block_end_at, start_at]
+
+  const res = await db
+    .prepare(
+      `UPDATE booking_items
+          SET staff_id = ?, start_at = ?, end_at = ?, block_end_at = ?
+        WHERE id = ?
+          AND status = 'booked'
+          AND ${freeGuard}`,
+    )
+    .bind(staff_id, start_at, end_at, block_end_at, item_id, ...guardArgs)
+    .run()
+
+  const changes = res.meta.changes ?? 0
+  if (changes === 0) return { ok: false, reason: 'SLOT_TAKEN' }
+
+  const item = await db
+    .prepare(
+      `SELECT id, appointment_id, staff_id, variant_id, start_at, end_at, block_end_at, status, cancelled_at
+       FROM booking_items WHERE id = ?`,
+    )
+    .bind(item_id)
+    .first<BookingItem>()
+
+  if (item === null) return { ok: false, reason: 'SLOT_TAKEN' }
+  return { ok: true, item }
+}
+
 export interface CustomerBookingRow {
   appointment_id: number
   item_id: number
@@ -318,6 +421,7 @@ export interface CustomerBookingRow {
   staff_id: number
   staff_name: string
   service_name: string
+  variant_id: number
   variant_name: string
 }
 
@@ -328,7 +432,7 @@ export async function listBookingsByPhone(db: D1Database, phone: string): Promis
       `SELECT a.id AS appointment_id, bi.id AS item_id,
               bi.start_at, bi.end_at, bi.block_end_at, bi.status,
               a.source, bi.staff_id, st.name AS staff_name,
-              s.name AS service_name, sv.name AS variant_name
+              s.name AS service_name, sv.id AS variant_id, sv.name AS variant_name
        FROM appointments a
        JOIN customers c        ON c.id = a.customer_id
        JOIN booking_items bi   ON bi.appointment_id = a.id
