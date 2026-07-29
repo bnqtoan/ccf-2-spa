@@ -1,19 +1,26 @@
 // T-22 E2E — 3 vai trò đăng nhập thấy đúng PHẠM VI. Tự chứa: mỗi test tự đăng
-// nhập bằng user seed (owner/reception/ktv, mật khẩu = ADMIN_PASSWORD), KHÔNG
-// dùng storageState chung (đó là phiên owner). KHÔNG tạo time_off/booking mới →
-// không đụng hàng chờ reassign toàn cục, an toàn ngoài project shared-queue.
+// nhập bằng user seed (owner/reception/ktv), KHÔNG dùng storageState chung (đó
+// là phiên owner). KHÔNG tạo time_off/booking mới → không đụng hàng chờ reassign
+// toàn cục, an toàn ngoài project shared-queue.
+//
+// T-23 — ADMIN_PASSWORD (env) đã BỎ HẲN. Mật khẩu seed mặc định là 'admin123'
+// (src/worker/db/seed.ts DEFAULT_PW) cho cả 3 user, NHƯNG chỉ owner có
+// must_change_password=1 (bắt đổi lần đầu) — reception/ktv là user DEV/E2E nội
+// bộ, không phải luồng bàn giao thật (=0). owner dùng _authHelpers (idempotent
+// qua nhiều spec/project không đảm bảo thứ tự); reception/ktv giữ PW cố định.
 //
 // Kiểm HAI điều card yêu cầu:
 //   1. nav + trang thấy đúng phạm vi (technician KHÔNG thấy nav thiết lập/dashboard).
 //   2. technician mở timeline CHỈ thấy cột của mình.
 
 import { test, expect, type Page } from '@playwright/test'
+import { loginOwnerPastMustChange } from './_authHelpers'
 
-const PW = 'dev-admin-password' // = ADMIN_PASSWORD local; seed dùng cho cả 3 user
+const PW = 'admin123' // reception/ktv: must_change_password=0, mật khẩu seed không đổi
 
 async function loginAs(page: Page, username: string) {
   const res = await page.request.post('/api/auth/login', { data: { username, password: PW } })
-  expect(res.status(), `login ${username} phải 200 (seed user + .dev.vars)`).toBe(200)
+  expect(res.status(), `login ${username} phải 200 (seed user + DEFAULT_PW)`).toBe(200)
 }
 
 test.describe('T-22 RBAC — 3 vai trò thấy đúng phạm vi', () => {
@@ -23,7 +30,9 @@ test.describe('T-22 RBAC — 3 vai trò thấy đúng phạm vi', () => {
   })
 
   test('owner: thấy Tổng quan (dashboard tiền) + Người dùng ở trang chủ /admin', async ({ page }) => {
-    await loginAs(page, 'owner')
+    // owner có must_change_password=1 (T-23) — tự đổi trước khi kỳ vọng vào
+    // thẳng /admin (không phải noise: guard SPA THẬT SỰ chặn nếu bỏ qua bước này).
+    await loginOwnerPastMustChange(page.request)
     await page.goto('/admin')
     // Trang chủ /admin là bảng THẺ (testid admin-nav-<to>), không phải thanh AdminNav.
     await expect(page.getByTestId('admin-nav-/admin/overview')).toBeVisible()

@@ -19,7 +19,7 @@ export default function RequireAuth({
   /** Nếu có: chỉ các role này được vào. Bỏ trống = bất kỳ user đã đăng nhập. */
   allow?: Role[]
 }) {
-  const { status, authenticated, role } = useSession()
+  const { status, authenticated, role, mustChangePassword } = useSession()
   const location = useLocation()
 
   if (status === 'checking') {
@@ -33,6 +33,12 @@ export default function RequireAuth({
   if (!authenticated) {
     const next = encodeURIComponent(location.pathname + location.search)
     return <Navigate to={`/login?next=${next}`} replace />
+  }
+
+  // T-23 — phải đổi mật khẩu mặc định trước khi vào BẤT KỲ trang admin nào
+  // (kể cả trang chính nó nếu đã ở /admin/change-password — tránh vòng lặp).
+  if (mustChangePassword && location.pathname !== '/admin/change-password') {
+    return <Navigate to="/admin/change-password" replace />
   }
 
   // Đăng nhập rồi nhưng role không được phép vào trang này → đưa về trang mặc

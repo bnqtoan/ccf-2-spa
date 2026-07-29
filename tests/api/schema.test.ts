@@ -5,6 +5,9 @@ import migrationSql from '../../migrations/0001_init.sql?raw'
 import migration2Sql from '../../migrations/0002_commission_tax.sql?raw'
 // T-22 — 0004 tạo bảng `users`; seed() nay xoá users nên schema test phải áp nó.
 import migration4Sql from '../../migrations/0004_users.sql?raw'
+// T-23 — seed() giờ LUÔN chèn must_change_password (cột 0005 thêm); thiếu
+// migration này thì seed() trong test dưới sẽ lỗi "no such column".
+import migration5Sql from '../../migrations/0005_must_change_password.sql?raw'
 
 const db = env.DB
 
@@ -35,6 +38,7 @@ beforeAll(async () => {
     ...splitStatements(migrationSql),
     ...splitStatements(migration2Sql),
     ...splitStatements(migration4Sql),
+    ...splitStatements(migration5Sql),
   ]) {
     await db.prepare(stmt).run()
   }

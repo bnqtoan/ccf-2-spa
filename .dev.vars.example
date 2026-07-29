@@ -5,15 +5,15 @@
 #   cp .dev.vars.example .dev.vars
 #
 # CẢNH BÁO KHỚP GIÁ TRỊ: các test hardcode một số giá trị này, phải GIỮ NGUYÊN:
-#   - ADMIN_PASSWORD=dev-admin-password  ← tests/e2e/auth.setup.ts + admin-auth.spec.ts + rbac.spec.ts
 #   - SESSION_SECRET=test-session-secret ← tests/api/_authCookie.ts
 #   - TEST_CLOCK=1                        ← bật clock-inject cho e2e near-midnight (T-21)
-# Đổi ADMIN_PASSWORD/SESSION_SECRET ở .dev.vars thì phải đổi cả trong các test trên.
+# Đổi SESSION_SECRET ở .dev.vars thì phải đổi cả trong các test trên.
 #
-# T-22 RBAC: `npm run db:seed:local` tạo 3 user (owner/reception/ktv), MẬT KHẨU
-# CỦA CẢ BA = ADMIN_PASSWORD ở trên. e2e đăng nhập bằng các username này. owner
-# là user gốc (chủ spa) — production đổi mật khẩu owner qua UID quản lý user hoặc
-# reset tay; ADMIN_PASSWORD chỉ là mật khẩu owner LẦN ĐẦU khi seed.
+# T-23: ADMIN_PASSWORD đã BỎ HẲN. `npm run db:seed:local` tạo 3 user (owner/
+# reception/ktv) với mật khẩu MẶC ĐỊNH CỐ ĐỊNH 'admin123' (không đọc từ env —
+# xem src/worker/db/seed.ts DEFAULT_PW). owner seed với must_change_password=1:
+# đăng nhập lần đầu bị bắt đổi mật khẩu trước khi vào admin (T-23). e2e đăng
+# nhập bằng username owner/reception/ktv, mật khẩu 'admin123' cho cả ba.
 
 # --- Payment (SePay + PayPal) — giá trị TEST, không phải thật ---
 SEPAY_API_KEY=test-sepay-key
@@ -27,6 +27,5 @@ PAYPAL_WEBHOOK_ID=test-webhook-id
 # --- Clock inject (T-21) — cho e2e cố định "now" qua header X-Test-Now ---
 TEST_CLOCK=1
 
-# --- Auth admin (T-19) — GIÁ TRỊ TEST, đổi ở production qua wrangler secret ---
-ADMIN_PASSWORD=dev-admin-password
+# --- Auth admin (T-19/T-23) — GIÁ TRỊ TEST, đổi ở production qua wrangler secret ---
 SESSION_SECRET=test-session-secret

@@ -1,11 +1,12 @@
-// T-19 → T-22 — cổng auth admin + RBAC.
+// T-19 → T-22 → T-23 — cổng auth admin + RBAC + đổi mật khẩu lần đầu.
 //
 // Module này export:
 //   - `adminAuthGuard` : middleware chặn MỌI /api/admin/* thiếu/sai phiên → 401,
 //     VÀ set c.get('user') = {userId, role, staffId} cho route lọc theo role.
 //   - `requireRoleMw(...roles)` : middleware chặn 403 nếu role không thuộc danh
 //     sách. Mount cụ thể cho cụm owner-only trong registerRoutes.
-//   - route POST /api/auth/login (username+password), logout, GET session.
+//   - route POST /api/auth/login (username+password), logout, GET session,
+//     POST /api/auth/change-password (T-23 — đổi mật khẩu CHÍNH MÌNH).
 //
 // Guard đặt TRƯỚC các route admin trong registerRoutes → chặn ~25 endpoint admin
 // tại một chỗ. Webhook payment & route khách KHÔNG khớp /api/admin/* nên KHÔNG
@@ -13,6 +14,11 @@
 //
 // role LẤY TỪ payload ĐÃ KÝ HMAC (readSession) — không bao giờ từ query/header
 // client (card cạm bẫy #2). Logic thuần kiểm/ký/băm ở src/worker/lib/auth.ts.
+//
+// T-23 — ADMIN_PASSWORD (env, tàn dư T-19) đã BỎ HẲN. Login/guard không phụ
+// thuộc env đó nữa — chỉ tra bảng `users` (đã vậy từ T-22). Owner gốc seed với
+// mật khẩu mặc định cố định 'admin123' + must_change_password=1 (migration
+// 0005); login trả must_change_password để SPA bắt đổi trước khi vào admin.
 
 import { Hono } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
@@ -20,6 +26,7 @@ import type { MiddlewareHandler } from 'hono'
 import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
+  hashPassword,
   issueSessionToken,
   readSession,
   requireRole,
@@ -30,7 +37,6 @@ import {
 
 type Bindings = {
   DB: D1Database
-  ADMIN_PASSWORD?: string
   SESSION_SECRET?: string
 }
 
@@ -93,13 +99,15 @@ interface UserRow {
   role: Role
   staff_id: number | null
   active: number
+  must_change_password: number
 }
 
 /**
  * POST /api/auth/login — nhận { username, password }. Tra bảng users, so khớp
  * hash constant-time. Đúng + user active → set cookie phiên httpOnly mang role,
- * trả { ok, role }. Sai username/mật khẩu HOẶC user inactive → 401 (không phân
- * biệt lý do ra ngoài — không rò rỉ "user tồn tại nhưng sai mật khẩu").
+ * trả { ok, role, must_change_password } (T-23 — SPA bắt đổi mật khẩu trước khi
+ * vào admin khi true). Sai username/mật khẩu HOẶC user inactive → 401 (không
+ * phân biệt lý do ra ngoài — không rò rỉ "user tồn tại nhưng sai mật khẩu").
  */
 routes.post('/api/auth/login', async (c) => {
   let payload: LoginBody
@@ -121,7 +129,7 @@ routes.post('/api/auth/login', async (c) => {
   }
 
   const row = await c.env.DB.prepare(
-    'SELECT id, password_hash, role, staff_id, active FROM users WHERE username = ?',
+    'SELECT id, password_hash, role, staff_id, active, must_change_password FROM users WHERE username = ?',
   )
     .bind(username)
     .first<UserRow>()
@@ -134,7 +142,8 @@ routes.post('/api/auth/login', async (c) => {
     return c.json(errorBody('UNAUTHORIZED', 'Tên đăng nhập hoặc mật khẩu không đúng.'), 401)
   }
 
-  const user: AuthUser = { userId: row.id, role: row.role, staffId: row.staff_id }
+  const mustChangePassword = row.must_change_password === 1
+  const user: AuthUser = { userId: row.id, role: row.role, staffId: row.staff_id, mustChangePassword }
   const now = nowSeconds()
   const token = await issueSessionToken(secret, now, SESSION_TTL_SECONDS, user)
   setCookie(c, SESSION_COOKIE, token, {
@@ -144,7 +153,7 @@ routes.post('/api/auth/login', async (c) => {
     path: '/',
     maxAge: SESSION_TTL_SECONDS,
   })
-  return c.json({ ok: true, role: row.role })
+  return c.json({ ok: true, role: row.role, must_change_password: mustChangePassword })
 })
 
 /** POST /api/auth/logout — xoá cookie phiên. Idempotent, luôn { ok: true }. */
@@ -155,14 +164,93 @@ routes.post('/api/auth/logout', (c) => {
 
 /**
  * GET /api/auth/session — SPA guard hỏi "phiên còn hợp lệ không + vai trò gì?"
- * để quyết định cho vào /admin hay đẩy về /login, VÀ lọc nav theo role. Trả
- * { authenticated, role?, staffId? }, luôn 200.
+ * để quyết định cho vào /admin hay đẩy về /login, VÀ lọc nav theo role. T-23:
+ * trả cả must_change_password — reload giữa chừng (chưa đổi mật khẩu) vẫn bị
+ * guard chặn lại, không chỉ dựa vào response của /login một lần. Trả
+ * { authenticated, role?, staffId?, must_change_password? }, luôn 200.
+ *
+ * `Cache-Control: no-store` BẮT BUỘC (T-23 phát hiện): GET không có header này
+ * bị trình duyệt cache heuristic (không Cache-Control/Last-Modified vẫn có thể
+ * cache). Sau đổi mật khẩu (POST /api/auth/change-password mutate cookie),
+ * RequireAuth điều hướng SPA rồi gọi lại GET /api/auth/session ngay — thiếu
+ * no-store thì fetch() có thể trả bản CACHE từ lần gọi TRƯỚC đổi mật khẩu
+ * (must_change_password vẫn true), khiến guard đẩy lại vào màn đổi mật khẩu dù
+ * server đã đổi xong — silent stuck loop, đã thấy thật khi test tay.
  */
 routes.get('/api/auth/session', async (c) => {
+  c.header('Cache-Control', 'no-store')
   const token = getCookie(c, SESSION_COOKIE)
   const user = await readSession(token, c.env.SESSION_SECRET, nowSeconds())
   if (user === null) return c.json({ authenticated: false })
-  return c.json({ authenticated: true, role: user.role, staffId: user.staffId })
+  return c.json({
+    authenticated: true,
+    role: user.role,
+    staffId: user.staffId,
+    must_change_password: user.mustChangePassword,
+  })
+})
+
+interface ChangePasswordBody {
+  current_password?: unknown
+  new_password?: unknown
+}
+
+/**
+ * POST /api/auth/change-password — đổi mật khẩu CỦA CHÍNH MÌNH (T-23). Cần
+ * phiên hợp lệ (không mount dưới /api/admin/* nên KHÔNG qua adminAuthGuard —
+ * đọc cookie trực tiếp ở đây, vì user với must_change_password=1 phải gọi được
+ * endpoint này TRƯỚC khi có quyền vào bất kỳ /api/admin/* nào).
+ *
+ * Đúng mật khẩu hiện tại + mật khẩu mới hợp lệ (≥6 ký tự, khớp ràng buộc admin-
+ * users.ts) → cập nhật hash, đặt must_change_password=0, PHÁT LẠI cookie phiên
+ * mới (payload mcp=false) để request tiếp theo không còn bị chặn. Sai mật khẩu
+ * hiện tại → 401 (không rò rỉ hash cũ).
+ */
+routes.post('/api/auth/change-password', async (c) => {
+  const secret = c.env.SESSION_SECRET
+  const token = getCookie(c, SESSION_COOKIE)
+  const session = await readSession(token, secret, nowSeconds())
+  if (session === null || typeof secret !== 'string' || secret === '') {
+    return c.json(errorBody('UNAUTHORIZED', 'Bạn cần đăng nhập để đổi mật khẩu.'), 401)
+  }
+
+  let payload: ChangePasswordBody
+  try {
+    payload = (await c.req.json()) as ChangePasswordBody
+  } catch {
+    return c.json(errorBody('VALIDATION', 'Body phải là JSON hợp lệ'), 422)
+  }
+
+  const currentPassword = typeof payload.current_password === 'string' ? payload.current_password : ''
+  const newPassword = typeof payload.new_password === 'string' ? payload.new_password : ''
+  if (newPassword.length < 6) {
+    return c.json(errorBody('VALIDATION', 'Mật khẩu mới phải có ít nhất 6 ký tự.'), 422)
+  }
+
+  const row = await c.env.DB.prepare('SELECT password_hash FROM users WHERE id = ?')
+    .bind(session.userId)
+    .first<{ password_hash: string }>()
+  const ok = await verifyPassword(currentPassword, row?.password_hash)
+  if (row === null || !ok) {
+    return c.json(errorBody('UNAUTHORIZED', 'Mật khẩu hiện tại không đúng.'), 401)
+  }
+
+  const newHash = await hashPassword(newPassword)
+  await c.env.DB.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?')
+    .bind(newHash, session.userId)
+    .run()
+
+  const updatedUser: AuthUser = { ...session, mustChangePassword: false }
+  const now = nowSeconds()
+  const newToken = await issueSessionToken(secret, now, SESSION_TTL_SECONDS, updatedUser)
+  setCookie(c, SESSION_COOKIE, newToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    path: '/',
+    maxAge: SESSION_TTL_SECONDS,
+  })
+  return c.json({ ok: true })
 })
 
 export default routes

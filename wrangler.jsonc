@@ -23,10 +23,13 @@
   // PAYPAL_SECRET, PAYPAL_WEBHOOK_ID) MUST be set with `wrangler secret put
   // <NAME>` — never committed here. See the "Payment secrets" note in README.
   //
-  // T-19 AUTH secrets (also `wrangler secret put`, never committed):
-  //   ADMIN_PASSWORD  — the shared admin login password.
+  // T-19 AUTH secret (also `wrangler secret put`, never committed):
   //   SESSION_SECRET  — HMAC key that signs the admin session cookie.
-  // Local dev reads them from .dev.vars (gitignored). See docs/DEPLOY.md.
+  // T-23: ADMIN_PASSWORD removed entirely — login only ever checks the `users`
+  // table hash (T-22). The seed owner account gets a fixed default password
+  // ('admin123', see src/worker/db/seed.ts) and must_change_password=1, so no
+  // password secret is needed to bootstrap it.
+  // Local dev reads SESSION_SECRET from .dev.vars (gitignored). See docs/DEPLOY.md.
   "vars": {
     // PayPal sandbox base by default; set to https://api-m.paypal.com in prod.
     "PAYPAL_BASE_URL": "https://api-m.sandbox.paypal.com",

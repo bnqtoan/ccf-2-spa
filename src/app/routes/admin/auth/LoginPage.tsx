@@ -30,7 +30,13 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  function go(role: Role) {
+  function go(role: Role, mustChangePassword: boolean) {
+    // T-23 — mật khẩu mặc định lần đầu → bắt đổi TRƯỚC, bỏ qua mọi `next`/trang
+    // mặc định của role (RequireAuth cũng chặn lại nếu vào thẳng URL khác).
+    if (mustChangePassword) {
+      navigate('/admin/change-password', { replace: true })
+      return
+    }
     // technician chỉ có lịch của mình → luôn về timeline, kể cả khi `next` trỏ
     // tới trang ngoài quyền (guard sẽ tự đẩy về, nhưng tránh nháy).
     if (role === 'technician') {
@@ -44,7 +50,7 @@ export default function LoginPage() {
   useEffect(() => {
     let alive = true
     fetchSession().then((s) => {
-      if (alive && s.authenticated && s.role) go(s.role)
+      if (alive && s.authenticated && s.role) go(s.role, s.mustChangePassword === true)
     })
     return () => {
       alive = false
@@ -58,9 +64,9 @@ export default function LoginPage() {
     setError(null)
     setBusy(true)
     try {
-      const role = await login(username.trim(), password)
-      if (role) {
-        go(role)
+      const result = await login(username.trim(), password)
+      if (result) {
+        go(result.role, result.mustChangePassword)
       } else {
         setError('Tên đăng nhập hoặc mật khẩu không đúng.')
       }

@@ -30,10 +30,10 @@ export default defineConfig({
           SEPAY_ACCOUNT_NUMBER: '0123456789',
           PAYPAL_VND_PER_USD: '25000',
           PAYPAL_WEBHOOK_ID: 'test-webhook-id',
-          // T-19 auth: test-only values so the admin guard / login route have a
-          // password and signing key under test (same pattern as the payment
-          // secrets above). NOT real secrets — prod sets them via secret put.
-          ADMIN_PASSWORD: 'test-admin-pw',
+          // T-19 auth: test-only signing key for the admin guard / login route
+          // (same pattern as the payment secrets above). NOT a real secret —
+          // prod sets it via secret put. T-23: ADMIN_PASSWORD removed — login
+          // only ever checks the `users` table hash, no env password needed.
           SESSION_SECRET: 'test-session-secret',
         },
       },

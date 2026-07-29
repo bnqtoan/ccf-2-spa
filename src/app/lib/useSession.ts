@@ -14,6 +14,8 @@ export interface UseSessionResult {
   status: SessionStatus
   authenticated: boolean
   role: Role | null
+  /** T-23 — true → guard chặn vào /admin/*, phải đổi mật khẩu trước. */
+  mustChangePassword: boolean
 }
 
 export function useSession(): UseSessionResult {
@@ -40,6 +42,7 @@ export function useSession(): UseSessionResult {
     status: state.status,
     authenticated: state.session.authenticated,
     role: state.session.role ?? null,
+    mustChangePassword: state.session.mustChangePassword === true,
   }
 }
 

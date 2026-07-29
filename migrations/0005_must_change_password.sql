@@ -1,0 +1,14 @@
+-- 0005_must_change_password.sql — bỏ ADMIN_PASSWORD, bắt đổi mật khẩu lần đầu (T-23).
+--
+-- ADDITIVE ONLY trên 0004: một cột MỚI trên `users`. KHÔNG sửa/xoá cột nào có
+-- sẵn. Áp sạch trên 0004.
+--
+-- Vì sao: ADMIN_PASSWORD (env, tàn dư T-19) bị bỏ hẳn (T-23). Owner gốc giờ seed
+-- với mật khẩu MẶC ĐỊNH CỐ ĐỊNH 'admin123' — một giá trị công khai trong tài
+-- liệu bàn giao, không phải secret. Để mặc định đó không tồn tại lâu trên
+-- production, cột này đánh dấu "user phải đổi mật khẩu trước khi vào admin".
+--
+-- DEFAULT 0 (không bắt đổi) — chỉ owner mới seed với =1 (xem seed.ts). User owner
+-- tự tạo qua UI quản lý user (admin-users.ts) không cần bắt đổi vì mật khẩu do
+-- chính owner đặt, không phải mặc định công khai.
+ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;

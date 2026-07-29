@@ -43,14 +43,16 @@ describe('session payload mang role/staffId', () => {
     const user: AuthUser = { userId: 7, role: 'owner', staffId: null }
     const t = await issueSessionToken(SECRET, NOW, 3600, user)
     const got = await readSession(t, SECRET, NOW)
-    expect(got).toEqual({ userId: 7, role: 'owner', staffId: null })
+    // T-23: readSession luôn trả thêm mustChangePassword (mặc định false khi
+    // AuthUser không set — đúng cho user này, không phải luồng đổi mật khẩu).
+    expect(got).toEqual({ userId: 7, role: 'owner', staffId: null, mustChangePassword: false })
   })
 
   it('technician token mang staffId', async () => {
     const user: AuthUser = { userId: 3, role: 'technician', staffId: 6 }
     const t = await issueSessionToken(SECRET, NOW, 3600, user)
     const got = await readSession(t, SECRET, NOW)
-    expect(got).toEqual({ userId: 3, role: 'technician', staffId: 6 })
+    expect(got).toEqual({ userId: 3, role: 'technician', staffId: 6, mustChangePassword: false })
   })
 
   it('SỬA role trong token (không ký lại) → verify fail (không giả mạo được role)', async () => {

@@ -28,13 +28,20 @@ export function isRole(x: unknown): x is Role {
 
 /**
  * Phiên ĐÃ XÁC THỰC — payload đã ký HMAC (client không giả được role). T-22 mở
- * rộng T-19: thêm userId/role/staffId. Route đọc c.get('user') để lọc theo role.
+ * rộng T-19: thêm userId/role/staffId. T-23: thêm mustChangePassword. Route đọc
+ * c.get('user') để lọc theo role / chặn vào admin khi phải đổi mật khẩu.
  */
 export interface AuthUser {
   userId: number
   role: Role
   /** Chỉ technician có staffId (link tới dòng staff của họ). owner/lễ tân: null. */
   staffId: number | null
+  /**
+   * T-23 — true → SPA phải chặn vào admin, bắt đổi mật khẩu trước. Optional:
+   * mặc định false ở nơi tạo (test cũ dựng AuthUser thủ công cho requireRole/
+   * ownership-check không liên quan tới must_change_password).
+   */
+  mustChangePassword?: boolean
 }
 
 interface SessionPayload {
@@ -46,6 +53,8 @@ interface SessionPayload {
   role: Role
   /** staff_id nếu là technician, else null (T-22). */
   sid: number | null
+  /** T-23 — ký trong payload để mỗi request tự biết, không cần tra lại DB. */
+  mcp: boolean
   /** Phát hành lúc (epoch giây). */
   iat: number
   /** Hết hạn lúc (epoch giây). */
@@ -110,6 +119,7 @@ export async function issueSessionToken(
     uid: user?.userId ?? 0,
     role: user?.role ?? 'owner',
     sid: user?.staffId ?? null,
+    mcp: user?.mustChangePassword ?? false,
     iat: now,
     exp: now + ttlSeconds,
   }
@@ -167,7 +177,8 @@ export async function readSession(
   const uid = typeof payload.uid === 'number' && Number.isInteger(payload.uid) ? payload.uid : 0
   const sid =
     typeof payload.sid === 'number' && Number.isInteger(payload.sid) && payload.sid > 0 ? payload.sid : null
-  return { userId: uid, role: payload.role, staffId: sid }
+  const mustChangePassword = payload.mcp === true
+  return { userId: uid, role: payload.role, staffId: sid, mustChangePassword }
 }
 
 /**
