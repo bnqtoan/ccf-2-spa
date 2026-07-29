@@ -1,7 +1,7 @@
 ---
 id: T-29
 title: Tạo lịch ngay trên timeline (click ô trống → đặt lịch prefill)
-status: todo
+status: review
 model: sonnet
 effort: high
 depends_on: ["T-22"]
@@ -14,7 +14,7 @@ touches:
 prd_refs: []
 owner: null
 started_at: null
-finished_at: null
+finished_at: 2026-07-30
 ---
 
 # T-29 · Tạo lịch ngay trên timeline (click ô trống → đặt lịch prefill)
@@ -108,4 +108,14 @@ timeline, và thấy nó xuất hiện ngay — không rời trang.
 - Nhớ gate RBAC ở **route**; ẩn nút UI không đủ (bài học T-28).
 
 ## Đã làm gì
-(agent điền khi xong)
+Backend: `admin-bookings.ts` mới — `POST /api/admin/bookings`, tái dùng nguyên vẹn
+`validateBooking` + `insertBookingAtomically(source='admin', status='booked')` (grid
+15' KHÔNG miễn trừ, khác walk-in). Gate `requireRoleMw('owner','receptionist')` ở
+`registerRoutes` (bài học T-28) — technician gọi thẳng nhận 403, đã kiểm bằng test.
+FE: `TimelinePage.tsx` thêm sheet "Đặt lịch" — click ô trống (KTV×giờ) prefill đúng
+cột+giờ, hoặc nút "+ Đặt lịch" ở qbar (không prefill); submit xong `loadAll()` để
+block hiện ngay. Test mới: `tests/api/admin-bookings.test.ts` (10 case: tạo thành
+công, ẩn danh, 403 technician, SLOT_TAKEN, lệch lưới→422, thiếu skill, 404, thiếu
+field, 401) + 3 E2E trong `admin-timeline.spec.ts` (prefill+tạo, nút qbar, trùng
+slot→lỗi thân thiện). `npm run typecheck`/`npm test`(427)/`npm run e2e`(93/94, 1 lỗi
+có sẵn trên `main` không liên quan — `customer-reschedule.spec.ts`) đều xanh.

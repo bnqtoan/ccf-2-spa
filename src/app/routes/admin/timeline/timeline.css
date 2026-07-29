@@ -125,6 +125,14 @@
   position: relative;
   height: 52px;
 }
+/* T-29: ô trống (không booking, không nghỉ) bấm được để đặt lịch prefill
+   đúng cột KTV + đúng giờ (G1/G2 — contract calendar "click ô trống -> tạo"). */
+.ccf-tl-cell--clickable {
+  cursor: pointer;
+}
+.ccf-tl-cell--clickable:hover {
+  background: var(--g-50);
+}
 
 /* ---------- event blocks (prototype dòng 272-284) ---------- */
 .ccf-tl-ev {

@@ -506,6 +506,88 @@ WHERE status IN ('booked','in_service')
     // Massage toàn thân thứ hai nào khác được thêm cho appointment này.
     await expect(page.getByTestId('add-service-sheet')).toBeVisible()
   })
+
+  // T-29: G1/G2 — tạo lịch ngay trên timeline. Backend POST /api/admin/bookings
+  // (admin-bookings.ts) đã có test API riêng (technician→403, SLOT_TAKEN,
+  // validate) — ba test dưới đây chỉ kiểm THAO TÁC TRÊN UI thật.
+  test('bấm ô trống Huong@15:00 mở sheet đặt lịch prefill đúng KTV + giờ, tạo xong block hiện ngay', async ({
+    page,
+  }) => {
+    // Huong (KHÔNG dính seedTimeOff 14-19h của Trang/Yen/Lan/Mai ở các test
+    // trên) @15:00 — giờ chưa ai chiếm trong file này (8/9/10/12/13/17 đã dùng).
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    const huongId = await staffIdOf(page, 'Huong')
+    const emptyCell = page.getByTestId(`cell-${huongId}-15`)
+    await expect(emptyCell).toBeVisible()
+    await emptyCell.click()
+
+    await expect(page.getByTestId('create-booking-sheet')).toBeVisible()
+    // Prefill đúng giờ của dòng vừa bấm (sửa được, nhưng giá trị ban đầu phải khớp).
+    await expect(page.getByTestId('create-booking-time')).toHaveValue('15:00')
+    // Prefill đúng KTV của cột vừa bấm.
+    await expect(page.getByTestId('create-booking-staff-select')).toHaveValue(huongId)
+
+    await page.getByTestId('create-booking-name').fill('E2E TL Create Lan Gọi Điện')
+    await page.getByTestId('create-booking-phone').fill('0977111222')
+    await page.getByTestId('create-booking-service-select').selectOption({ label: 'Massage toàn thân' })
+    await page.getByTestId('create-booking-variant-select').selectOption({ label: '60 phút' })
+
+    await page.getByTestId('create-booking-submit').click()
+
+    // Sheet đóng, timeline tải lại — block mới hiện NGAY, không cần rời trang.
+    await expect(page.getByTestId('create-booking-sheet')).not.toBeVisible()
+    const newBlock = page.locator('[data-testid^="booking-item-"]', { hasText: 'E2E TL Create Lan Gọi Điện' })
+    await expect(newBlock).toHaveCount(1)
+    const cellAt15 = page.getByTestId(`cell-${huongId}-15`)
+    await expect(cellAt15.locator('[data-testid^="booking-item-"]')).toHaveCount(1)
+  })
+
+  test('nút "+ Đặt lịch" trên qbar mở được sheet đặt lịch không cần bấm ô trống', async ({ page }) => {
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    await expect(page.getByTestId('create-booking-sheet')).not.toBeVisible()
+    await page.getByTestId('create-booking-open').click()
+    await expect(page.getByTestId('create-booking-sheet')).toBeVisible()
+    // Mở từ qbar (không phải từ ô trống) — không prefill KTV.
+    await expect(page.getByTestId('create-booking-staff-select')).toHaveValue('')
+  })
+
+  test('tạo lịch trùng slot KTV đã bận báo lỗi thân thiện SLOT_TAKEN, không lộ mã lỗi thô', async ({ page }) => {
+    const seeded = seedBookingItem({
+      staffName: 'Trang',
+      serviceName: 'Chăm sóc móng',
+      variantName: 'Đắp bột', // 75 phút + buffer 10 -> chiếm [12:00, 13:25)
+      hour: 12,
+      customerSuffix: 'DupSlot',
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+    await expect(page.getByTestId(`booking-item-${seeded.itemId}`)).toBeVisible()
+
+    // Mở "+ Đặt lịch" từ qbar (ô 12:00 của Trang không còn trống nên không bấm
+    // được ô), tự chọn đúng Trang + đúng 12:00 để chồng slot đã có.
+    await page.getByTestId('create-booking-open').click()
+    await expect(page.getByTestId('create-booking-sheet')).toBeVisible()
+
+    await page.getByTestId('create-booking-name').fill('E2E TL Create Trùng Slot')
+    await page.getByTestId('create-booking-service-select').selectOption({ label: 'Chăm sóc móng' })
+    await page.getByTestId('create-booking-variant-select').selectOption({ label: 'Đắp bột' })
+    await page.getByTestId('create-booking-time').fill('12:00')
+    const trangId = await staffIdOf(page, 'Trang')
+    await page.getByTestId('create-booking-staff-select').selectOption(trangId)
+
+    await page.getByTestId('create-booking-submit').click()
+
+    const err = page.getByTestId('create-booking-error')
+    await expect(err).toBeVisible()
+    await expect(err).not.toContainText('SLOT_TAKEN')
+    // Sheet KHÔNG âm thầm đóng — lễ tân vẫn thấy form để sửa giờ/KTV khác.
+    await expect(page.getByTestId('create-booking-sheet')).toBeVisible()
+  })
 })
 
 /** Bấm nút "ngày sau" đủ số lần để tới TARGET_DATE (Thứ Hai tuần sau), xuất
