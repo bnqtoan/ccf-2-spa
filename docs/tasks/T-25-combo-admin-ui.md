@@ -1,7 +1,7 @@
 ---
 id: T-25
 title: G6 — UI lễ tân thêm dịch vụ vào appointment (combo admin)
-status: todo
+status: review
 model: sonnet
 effort: medium
 depends_on: [T-19, T-22]

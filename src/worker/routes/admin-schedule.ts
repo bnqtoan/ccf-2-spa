@@ -32,6 +32,7 @@ function errorBody(code: string, message: string) {
 interface ItemRow {
   staff_id: number
   id: number
+  appointment_id: number
   start_at: number
   end_at: number
   block_end_at: number
@@ -104,7 +105,7 @@ routes.get('/api/admin/schedule', async (c) => {
       // never occupied the slot in the customer-facing sense (CONVENTIONS §3).
       db
         .prepare(
-          `SELECT bi.staff_id AS staff_id, bi.id AS id,
+          `SELECT bi.staff_id AS staff_id, bi.id AS id, bi.appointment_id AS appointment_id,
                   bi.start_at AS start_at, bi.end_at AS end_at, bi.block_end_at AS block_end_at,
                   bi.status AS status, a.source AS source,
                   c.name AS customer_name, s.name AS service_name, sv.name AS variant_name
@@ -151,6 +152,7 @@ routes.get('/api/admin/schedule', async (c) => {
     name: s.name,
     items: (itemsByStaff.get(s.id) ?? []).map((row) => ({
       id: row.id,
+      appointment_id: row.appointment_id,
       start_at: row.start_at,
       end_at: row.end_at,
       block_end_at: row.block_end_at,

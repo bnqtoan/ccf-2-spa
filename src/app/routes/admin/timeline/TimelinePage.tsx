@@ -6,16 +6,22 @@ import EmptyState from '../../../components/EmptyState'
 import Field from '../../../components/Field'
 import Notice from '../../../components/Notice'
 import Sheet from '../../../components/Sheet'
+import { useSession } from '../../../lib/useSession'
 import {
+  addAppointmentItem,
   ApiError,
   createTimeOff,
+  getAvailability,
   getReassignQueue,
   getSchedule,
+  getServices,
   setBookingStatus,
   type AffectedItem,
+  type AvailabilitySlot,
   type ScheduleItem,
   type ScheduleResponse,
   type ScheduleStaff,
+  type Service,
 } from './api'
 import { addDays, formatDateNav, formatHm, minutesOfLocalDay, toDateStr } from './format'
 import './timeline.css'
@@ -108,6 +114,11 @@ export default function TimelinePage() {
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
   const navigate = useNavigate()
+  const { role } = useSession()
+  // T-25: nút "+ Thêm dịch vụ" là thao tác vận hành — owner + lễ tân, KHÔNG
+  // technician (card RBAC T-22). Ẩn ở UI là defense-in-depth (server gate ở
+  // T-28); server hiện CHƯA gate route này — ghi nhận, không tự sửa ở card này.
+  const canAddService = role === 'owner' || role === 'receptionist'
 
   // G1: "Báo nghỉ" — bấm tên KTV ở đầu cột để mở. Chọn khoảng giờ trong NGÀY
   // đang xem, xác nhận -> POST /api/admin/time-off -> hiện ngay các lịch bị ảnh
@@ -119,6 +130,93 @@ export default function TimelinePage() {
   const [offSubmitting, setOffSubmitting] = useState(false)
   const [offError, setOffError] = useState<string | null>(null)
   const [offAffected, setOffAffected] = useState<AffectedItem[] | null>(null)
+
+  // T-25: "+ Thêm dịch vụ" trong sheet booking — dựng UI cho backend ĐÃ CÓ
+  // (POST /api/admin/appointments/:id/items, admin-appointment-items.ts,
+  // KHÔNG sửa). Luồng: chọn dịch vụ -> gói -> giờ (slot của NGÀY đang xem
+  // trên timeline) -> KTV rảnh trong slot đó -> submit.
+  const [addServiceOpen, setAddServiceOpen] = useState(false)
+  const [addServices, setAddServices] = useState<Service[] | null>(null)
+  const [addLoadError, setAddLoadError] = useState<string | null>(null)
+  const [addServiceId, setAddServiceId] = useState<number | null>(null)
+  const [addVariantId, setAddVariantId] = useState<number | null>(null)
+  const [addSlots, setAddSlots] = useState<AvailabilitySlot[] | null>(null)
+  const [addSlotsLoading, setAddSlotsLoading] = useState(false)
+  const [addSlotsError, setAddSlotsError] = useState<string | null>(null)
+  const [addStartAt, setAddStartAt] = useState<number | null>(null)
+  const [addStaffId, setAddStaffId] = useState<number | null>(null)
+  const [addSaving, setAddSaving] = useState(false)
+  const [addSaveError, setAddSaveError] = useState<string | null>(null)
+
+  function openAddService() {
+    setAddServiceOpen(true)
+    setAddServiceId(null)
+    setAddVariantId(null)
+    setAddSlots(null)
+    setAddSlotsError(null)
+    setAddStartAt(null)
+    setAddStaffId(null)
+    setAddSaveError(null)
+    if (addServices === null) {
+      setAddLoadError(null)
+      getServices()
+        .then(setAddServices)
+        .catch(() => setAddLoadError('Không tải được danh mục dịch vụ. Vui lòng thử lại.'))
+    }
+  }
+
+  function closeAddService() {
+    setAddServiceOpen(false)
+  }
+
+  function handleAddServiceChange(rawId: string) {
+    const id = rawId === '' ? null : Number(rawId)
+    setAddServiceId(id)
+    setAddVariantId(null)
+    setAddSlots(null)
+    setAddStartAt(null)
+    setAddStaffId(null)
+  }
+
+  function handleAddVariantChange(rawId: string) {
+    const id = rawId === '' ? null : Number(rawId)
+    setAddVariantId(id)
+    setAddStartAt(null)
+    setAddStaffId(null)
+  }
+
+  function pickAddSlot(startAt: number) {
+    setAddStartAt(startAt)
+    setAddStaffId(null)
+  }
+
+  async function handleAddServiceSubmit() {
+    if (selectedItem === null || addVariantId === null || addStartAt === null || addStaffId === null) return
+    setAddSaving(true)
+    setAddSaveError(null)
+    try {
+      await addAppointmentItem(selectedItem.item.appointment_id, {
+        variant_id: addVariantId,
+        staff_id: addStaffId,
+        start_at: addStartAt,
+      })
+      setAddServiceOpen(false)
+      // Reload lịch để item mới hiện ngay trên timeline (card: KHÔNG chỉ đóng sheet).
+      await loadAll()
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'ZONE_CONFLICT') {
+        setAddSaveError('Dịch vụ này trùng vùng cơ thể với dịch vụ đang làm, chọn dịch vụ khác.')
+      } else if (err instanceof ApiError && err.code === 'SLOT_TAKEN') {
+        setAddSaveError('Khung giờ này vừa bị chiếm mất. Vui lòng chọn giờ hoặc kỹ thuật viên khác.')
+      } else if (err instanceof ApiError) {
+        setAddSaveError(err.message)
+      } else {
+        setAddSaveError('Không thêm được dịch vụ. Vui lòng thử lại.')
+      }
+    } finally {
+      setAddSaving(false)
+    }
+  }
 
   function openTimeOff(s: { id: number; name: string }) {
     setTimeOffStaff(s)
@@ -204,6 +302,34 @@ export default function TimelinePage() {
     loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date])
+
+  // T-25: mỗi khi đã chọn gói xong, tải slot còn trống trong NGÀY đang xem
+  // trên timeline (không phải "bây giờ" — khác walk-in). variant_id thay đổi
+  // hoặc ngày đổi trong lúc sheet mở đều tải lại.
+  useEffect(() => {
+    if (addVariantId === null) {
+      setAddSlots(null)
+      return
+    }
+    let cancelled = false
+    setAddSlotsLoading(true)
+    setAddSlotsError(null)
+    setAddStartAt(null)
+    setAddStaffId(null)
+    getAvailability(addVariantId, date)
+      .then((rows) => {
+        if (!cancelled) setAddSlots(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setAddSlotsError('Không tải được khung giờ. Vui lòng thử lại.')
+      })
+      .finally(() => {
+        if (!cancelled) setAddSlotsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [addVariantId, date])
 
   const selectedItem: { item: ScheduleItem; staffName: string } | null = useMemo(() => {
     if (selectedItemId === null || schedule === null) return null
@@ -533,8 +659,147 @@ export default function TimelinePage() {
             <Notice tone="info" style={{ marginTop: 16 }}>
               “Khách không đến” dùng để ghi nhận lịch sử, không mở lại được slot đã trôi qua.
             </Notice>
+
+            {canAddService && (
+              <Button
+                variant="ghost"
+                className="ccf-tl-add-btn"
+                data-testid="add-service-open"
+                onClick={openAddService}
+              >
+                + Thêm dịch vụ
+              </Button>
+            )}
           </div>
         )}
+      </Sheet>
+
+      <Sheet
+        open={addServiceOpen}
+        onClose={closeAddService}
+        title="Thêm dịch vụ"
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeAddService}>
+              Đóng
+            </Button>
+            <Button
+              variant="primary"
+              data-testid="add-service-submit"
+              disabled={addStaffId === null || addSaving}
+              onClick={handleAddServiceSubmit}
+            >
+              {addSaving ? 'Đang lưu...' : 'Thêm vào lịch'}
+            </Button>
+          </>
+        }
+      >
+        <div data-testid="add-service-sheet">
+          {addLoadError && <Notice tone="warn">{addLoadError}</Notice>}
+
+          {addSaveError && (
+            <Notice tone="warn" style={{ marginBottom: 12 }} data-testid="add-service-error">
+              {addSaveError}
+            </Notice>
+          )}
+
+          <Field
+            as="select"
+            label="Dịch vụ"
+            data-testid="add-service-select"
+            value={addServiceId ?? ''}
+            onChange={(e) => handleAddServiceChange(e.target.value)}
+          >
+            <option value="">— Chọn dịch vụ —</option>
+            {addServices?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Field>
+
+          {addServiceId !== null &&
+            (() => {
+              const svc = addServices?.find((s) => s.id === addServiceId) ?? null
+              if (svc === null) return null
+              return (
+                <Field
+                  as="select"
+                  label="Gói"
+                  data-testid="add-variant-select"
+                  value={addVariantId ?? ''}
+                  onChange={(e) => handleAddVariantChange(e.target.value)}
+                >
+                  <option value="">— Chọn gói —</option>
+                  {svc.variants.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </Field>
+              )
+            })()}
+
+          {addVariantId !== null && (
+            <>
+              <div className="ccf-tl-label">Giờ bắt đầu · {formatDateNav(date, todayStr)}</div>
+              {addSlotsLoading && <p>Đang tải...</p>}
+              {addSlotsError && <Notice tone="warn">{addSlotsError}</Notice>}
+              {!addSlotsLoading && !addSlotsError && addSlots !== null && (
+                <>
+                  {addSlots.length === 0 ? (
+                    <EmptyState icon="🗓️" text="Không còn khung giờ trống cho gói này trong ngày." />
+                  ) : (
+                    <div className="ccf-tl-slots">
+                      {addSlots.map((slot) => (
+                        <button
+                          type="button"
+                          key={slot.start_at}
+                          className={`ccf-tl-slot${addStartAt === slot.start_at ? ' ccf-tl-slot--sel' : ''}`}
+                          data-testid={`add-slot-${slot.start_at}`}
+                          onClick={() => pickAddSlot(slot.start_at)}
+                        >
+                          {formatHm(slot.start_at)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {addStartAt !== null &&
+            (() => {
+              const chosen = addSlots?.find((s) => s.start_at === addStartAt) ?? null
+              if (chosen === null) return null
+              return (
+                <>
+                  <div className="ccf-tl-label">Kỹ thuật viên</div>
+                  {chosen.staff_ids.length === 0 ? (
+                    <Notice tone="warn" data-testid="add-no-staff-notice">
+                      Không có ai rảnh vào giờ này cho gói đã chọn.
+                    </Notice>
+                  ) : (
+                    chosen.staff_ids.map((staffId) => {
+                      const staffName = schedule?.staff.find((s) => s.id === staffId)?.name ?? `KTV #${staffId}`
+                      return (
+                        <button
+                          type="button"
+                          key={staffId}
+                          data-testid={`add-staff-${staffId}`}
+                          className={`ccf-tl-staffpick${addStaffId === staffId ? ' ccf-tl-staffpick--sel' : ''}`}
+                          onClick={() => setAddStaffId(staffId)}
+                        >
+                          <div className="ccf-tl-nm">{staffName}</div>
+                        </button>
+                      )
+                    })
+                  )}
+                </>
+              )
+            })()}
+        </div>
       </Sheet>
 
       <Sheet

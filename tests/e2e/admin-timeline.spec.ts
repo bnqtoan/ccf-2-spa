@@ -408,6 +408,104 @@ WHERE status IN ('booked','in_service')
     await expect(block).toHaveAttribute('data-status', 'in_service')
     await expect(block).toHaveClass(/ccf-tl-ev--in_service/)
   })
+
+  // T-25: "+ Thêm dịch vụ" trong sheet booking — backend đã có
+  // (POST /api/admin/appointments/:id/items), card này chỉ dựng UI.
+  test('lễ tân bấm booking, thêm dịch vụ khác vùng cơ thể, item mới hiện ngay trên timeline', async ({ page }) => {
+    const seeded = seedBookingItem({
+      staffName: 'Huong',
+      serviceName: 'Massage toàn thân',
+      variantName: '60 phút', // body_zone 'body'
+      hour: 8,
+      customerSuffix: 'AddOk',
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    await page.getByTestId(`booking-item-${seeded.itemId}`).click()
+    await expect(page.getByTestId('booking-sheet')).toBeVisible()
+
+    await page.getByTestId('add-service-open').click()
+    await expect(page.getByTestId('add-service-sheet')).toBeVisible()
+
+    // Chọn "Chăm sóc móng" — body_zone 'hands', khác hẳn 'body' của item có sẵn
+    // trong CÙNG appointment, nên không đụng chặn ZONE_CONFLICT.
+    await page.getByTestId('add-service-select').selectOption({ label: 'Chăm sóc móng' })
+    await page.getByTestId('add-variant-select').selectOption({ label: 'Sơn gel' })
+
+    // Chọn khung giờ đầu tiên còn trống trong ngày cho gói này.
+    const firstSlot = page.locator('[data-testid^="add-slot-"]').first()
+    await expect(firstSlot).toBeVisible()
+    await firstSlot.click()
+
+    const firstStaff = page.locator('[data-testid^="add-staff-"]').first()
+    await expect(firstStaff).toBeVisible()
+    await firstStaff.click()
+
+    await page.getByTestId('add-service-submit').click()
+
+    // Sheet đóng, timeline tải lại — item mới hiện ngay trên timeline mà
+    // không cần reload trang thủ công. Item "Sơn gel" (45') là block NGẮN
+    // (dưới ngưỡng ccf-tl-ev--short) nên tên dịch vụ bị ẩn theo CSS có chủ
+    // đích (giống test "block ngắn" ở trên) — kiểm bằng data-testid mới nhất
+    // của cột Mai/Trang thay vì text tên dịch vụ.
+    await expect(page.getByTestId('add-service-sheet')).not.toBeVisible()
+    const newBlocks = page.locator('[data-testid^="booking-item-"]', { hasText: 'AddOk' })
+    await expect(newBlocks).toHaveCount(2) // item gốc (Massage) + item vừa thêm (móng)
+  })
+
+  test('thêm dịch vụ trùng vùng cơ thể với dịch vụ đang làm bị chặn, báo thân thiện không lộ mã lỗi thô', async ({
+    page,
+  }) => {
+    const seeded = seedBookingItem({
+      staffName: 'Huong',
+      serviceName: 'Massage toàn thân',
+      variantName: '60 phút', // body_zone 'body', chiếm [09:00, 10:10) kể cả buffer
+      hour: 9,
+      customerSuffix: 'AddZoneConflict',
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    await page.getByTestId(`booking-item-${seeded.itemId}`).click()
+    await expect(page.getByTestId('booking-sheet')).toBeVisible()
+
+    await page.getByTestId('add-service-open').click()
+    await expect(page.getByTestId('add-service-sheet')).toBeVisible()
+
+    // Cùng dịch vụ "Massage toàn thân" (body_zone 'body' — TRÙNG với item đã
+    // có trong appointment này), gói khác (90 phút) để phép thử độc lập với
+    // gói ban đầu, nhưng vẫn CHỒNG GIỜ nếu bấm slot 18:00 — chọn đúng slot đó.
+    await page.getByTestId('add-service-select').selectOption({ label: 'Massage toàn thân' })
+    await page.getByTestId('add-variant-select').selectOption({ label: '90 phút' })
+
+    // Slot 09:00 tồn tại vì Lan (KTV thứ 2 có skill Massage) rảnh giờ đó, và
+    // block 90 phút (105 phút kể cả buffer) vẫn gọn trong ca 09:00-19:00 —
+    // chọn đúng slot trùng giờ với item gốc (của Huong) để kích hoạt
+    // ZONE_CONFLICT dù người thêm là KTV khác (luật body_zone không phụ
+    // thuộc staff_id — trong CÙNG appointment là đủ, CONVENTIONS §6).
+    const slot0900 = page.getByTestId(`add-slot-${localToEpoch(TARGET_DATE, 9, 0)}`)
+    await expect(slot0900).toBeVisible()
+    await slot0900.click()
+
+    const firstStaff = page.locator('[data-testid^="add-staff-"]').first()
+    await expect(firstStaff).toBeVisible()
+    await firstStaff.click()
+
+    await page.getByTestId('add-service-submit').click()
+
+    // Báo lỗi thân thiện tiếng Việt, KHÔNG lộ mã lỗi thô "ZONE_CONFLICT".
+    const err = page.getByTestId('add-service-error')
+    await expect(err).toBeVisible()
+    await expect(err).toContainText('trùng vùng cơ thể')
+    await expect(err).not.toContainText('ZONE_CONFLICT')
+
+    // Không thêm: sheet vẫn mở (không silent-close), timeline KHÔNG có item
+    // Massage toàn thân thứ hai nào khác được thêm cho appointment này.
+    await expect(page.getByTestId('add-service-sheet')).toBeVisible()
+  })
 })
 
 /** Bấm nút "ngày sau" đủ số lần để tới TARGET_DATE (Thứ Hai tuần sau), xuất
