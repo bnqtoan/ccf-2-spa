@@ -8,6 +8,8 @@ depends_on: ["T-22"]
 touches:
   - src/app/routes/admin/TimelinePage.tsx
   - src/app/routes/admin/timeline.css
+  - src/app/routes/admin/timeline/api.ts
+  - src/worker/routes/admin-bookings.ts
   - src/worker/routes/index.ts
 prd_refs: []
 owner: null
@@ -50,18 +52,31 @@ giờ dòng đó).**
 
 ## Đầu vào đã có
 - `TimelinePage.tsx` — grid KTV×giờ, sheet chi tiết block đã có.
-- Walk-in API + write-path validate (slot/skill/shift) đã tồn tại — dùng lại, đừng
-  viết validate mới. Kiểm tra endpoint hiện có trước khi thêm.
-- RBAC: tạo lịch chỉ owner + receptionist (theo T-22/T-28 pattern) — technician KHÔNG
-  được tạo. Gate ở route, không chỉ ẩn UI.
+- `insertBookingAtomically` (`src/worker/db/bookings.ts`) — ĐÃ type sẵn
+  `source: 'online' | 'walk_in' | 'admin'` nhưng CHƯA route nào dùng `'admin'`.
+  Đây là write-path để dùng lại. **Không viết validate mới.**
+- `validateBooking` (slot/skill/shift) — dùng lại y hệt.
+- **Endpoint cần tạo mới** (đã chốt với owner): `POST /api/admin/bookings` trong file
+  MỚI `src/worker/routes/admin-bookings.ts` — mẫu giống cách T-08 tạo
+  `admin-walkin.ts`. KHÁC walk-in: nhận giờ tương lai do lễ tân chọn (không phải
+  `serverNow()`), status khởi tạo `booked` (không `in_service`), `source='admin'`.
+  Mount bằng đúng 1 dòng trong `registerRoutes()` (CONVENTIONS §7).
+- Endpoint cũ KHÔNG dùng được (ghi để khỏi lặp phân tích): `POST /api/bookings` là
+  của khách (`source:'online'`, không gate); `POST /api/admin/walk-ins` chỉ tạo
+  "ngay bây giờ".
+- RBAC: gate `adminAuthGuard` owner + receptionist ở route mới — technician → 403.
+  Gate ở route, không chỉ ẩn UI (bài học T-28).
 
 ## Việc phải làm
-1. Grid: ô trống nhận onClick → tính (staff_id, start_at) từ toạ độ ô.
-2. Mở sheet đặt lịch prefill; cho sửa giờ/KTV.
-3. Submit → gọi API tạo (dùng lại validate có sẵn); render lại grid.
-4. Thêm nút "+ Đặt lịch" trên qbar của timeline (mở sheet, không prefill hoặc prefill
-   giờ hiện tại + KTV đầu).
-5. Gate RBAC ở route nếu route mới; nếu dùng route cũ đã gated thì xác nhận.
+1. Backend: tạo `src/worker/routes/admin-bookings.ts` — `POST /api/admin/bookings`,
+   gate owner+receptionist, nhận {name, phone, variant_id, start_at, staff_id?},
+   gọi `validateBooking` + `insertBookingAtomically(source='admin', status='booked')`.
+   Mount 1 dòng trong `index.ts`.
+2. FE api client (`timeline/api.ts`): thêm hàm gọi endpoint mới.
+3. Grid: ô trống nhận onClick → tính (staff_id, start_at) từ toạ độ ô.
+4. Mở sheet đặt lịch prefill; cho sửa giờ/KTV.
+5. Submit → gọi API tạo; render lại grid.
+6. Thêm nút "+ Đặt lịch" trên qbar của timeline.
 
 ## Quy ước bắt buộc
 Copy các mục liên quan từ `docs/tasks/CONVENTIONS.md` (đặc biệt: chỉ thêm 1 dòng vào
