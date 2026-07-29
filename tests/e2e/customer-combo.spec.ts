@@ -161,6 +161,109 @@ test.describe('Luồng khách đặt combo nối tiếp (R1a)', () => {
     await expect(page.getByText(/\b(HTTP\s*)?409\b|\berror\b/i)).not.toBeVisible()
   })
 
+  test('chọn 2 dịch vụ, chọn SONG SONG → thấy 2 KTV/2 giờ (ai làm gì), đặt thành công', async ({
+    page,
+    request,
+  }) => {
+    const tag = `${Date.now()}-${Math.floor(Math.random() * 100000)}`
+    const massage = await makeSkill(request, `par-m-${tag}`)
+    const nails = await makeSkill(request, `par-n-${tag}`)
+    // TWO different technicians, each ONE skill → parallel is possible, serial is not.
+    await makeStaffWithSkills(request, `par-m-only-${tag}`, [massage])
+    await makeStaffWithSkills(request, `par-n-only-${tag}`, [nails])
+    const svcMassage = await makeService(request, `par-m-${tag}`, massage, 'body', 60, 10, 350000)
+    const svcNails = await makeService(request, `par-n-${tag}`, nails, 'hands', 45, 5, 150000)
+    const phone = randomPhone()
+
+    await page.goto('/')
+    await page.getByTestId(`service-${svcMassage.serviceId}`).click()
+    await page.getByTestId(`variant-${svcMassage.variantId}`).click()
+    await page.getByTestId('variant-add-more').click()
+    await page.getByTestId(`service-${svcNails.serviceId}`).click()
+    await page.getByTestId(`variant-${svcNails.variantId}`).click()
+    await page.getByTestId('variant-continue').click()
+
+    // Combo time screen: pick PARALLEL mode.
+    await expect(page.getByTestId('combo-time-summary')).toBeVisible()
+    await page.getByTestId('combo-mode-parallel').click()
+
+    // Pick the first day with a parallel slot.
+    await pickFirstComboSlot(page)
+
+    // The "ai làm gì lúc nào" plan must be visible with BOTH legs + a KTV each.
+    await expect(page.getByTestId('combo-parallel-plan')).toBeVisible()
+    await expect(page.getByTestId(`combo-parallel-leg-${svcMassage.variantId}`)).toContainText('KTV #')
+    await expect(page.getByTestId(`combo-parallel-leg-${svcNails.variantId}`)).toContainText('KTV #')
+
+    await expect(page.getByTestId('combo-time-continue')).toBeEnabled()
+    await page.getByTestId('combo-time-continue').click()
+
+    // Confirm shows both legs starting at the same time, each with its own KTV.
+    await expect(page.getByTestId('combo-confirm-summary')).toBeVisible()
+    await expect(page.getByTestId('combo-confirm-summary')).toContainText('Song song')
+    await page.getByTestId('confirm-name').fill('Nguyễn Song Song')
+    await page.getByTestId('confirm-phone').fill(phone)
+    await expect(page.getByTestId('confirm-submit')).toBeEnabled()
+    await page.getByTestId('confirm-submit').click()
+
+    await expect(page.getByTestId('booking-code')).toBeVisible()
+
+    // Truth check: two items, ONE appointment, DIFFERENT technicians, SAME start.
+    const res = await request.get(`/api/bookings?phone=${encodeURIComponent(phone)}`)
+    expect(res.ok()).toBe(true)
+    const body = (await res.json()) as {
+      bookings: Array<{ appointment_id: number; staff_id: number; start_at: number; variant_name: string }>
+    }
+    expect(body.bookings).toHaveLength(2)
+    expect(new Set(body.bookings.map((b) => b.appointment_id)).size).toBe(1) // one appointment
+    expect(new Set(body.bookings.map((b) => b.staff_id)).size).toBe(2) // DIFFERENT techs
+    expect(new Set(body.bookings.map((b) => b.start_at)).size).toBe(1) // SAME start (parallel)
+  })
+
+  test('song song mà chỉ đủ 1 người (dù đủ mọi skill) → không có slot song song, báo trước', async ({
+    page,
+    request,
+  }) => {
+    const tag = `${Date.now()}-${Math.floor(Math.random() * 100000)}`
+    const massage = await makeSkill(request, `solo-m-${tag}`)
+    const nails = await makeSkill(request, `solo-n-${tag}`)
+    // ONE super-tech holds both → serial works, parallel cannot (needs 2 bodies).
+    await makeStaffWithSkills(request, `solo-both-${tag}`, [massage, nails])
+    const svcMassage = await makeService(request, `solo-m-${tag}`, massage, 'body', 60, 10, 350000)
+    const svcNails = await makeService(request, `solo-n-${tag}`, nails, 'hands', 45, 5, 150000)
+
+    await page.goto('/')
+    await page.getByTestId(`service-${svcMassage.serviceId}`).click()
+    await page.getByTestId(`variant-${svcMassage.variantId}`).click()
+    await page.getByTestId('variant-add-more').click()
+    await page.getByTestId(`service-${svcNails.serviceId}`).click()
+    await page.getByTestId(`variant-${svcNails.variantId}`).click()
+    await page.getByTestId('variant-continue').click()
+
+    await expect(page.getByTestId('combo-time-summary')).toBeVisible()
+    // Serial should have slots (super-tech). Parallel should NOT across all days.
+    await page.getByTestId('combo-mode-parallel').click()
+
+    const dateButtons = page.locator('.ccf-bk-date')
+    const count = await dateButtons.count()
+    let foundParallelSlot = false
+    for (let i = 0; i < count; i++) {
+      await dateButtons.nth(i).click()
+      await page
+        .locator('.ccf-bk-slot')
+        .first()
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => {
+          foundParallelSlot = true
+        })
+        .catch(() => {})
+      if (foundParallelSlot) break
+    }
+    expect(foundParallelSlot).toBe(false) // parallel impossible with a single tech
+    // Continue stays disabled; no way to book a half/impossible parallel combo.
+    await expect(page.getByTestId('combo-time-continue')).toBeDisabled()
+  })
+
   test('có thể bỏ một dịch vụ khỏi giỏ combo trước khi đặt', async ({ page, request }) => {
     const tag = `${Date.now()}-${Math.floor(Math.random() * 100000)}`
     const massage = await makeSkill(request, `rm-m-${tag}`)

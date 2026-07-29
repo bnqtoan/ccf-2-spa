@@ -1,7 +1,7 @@
 ---
 id: T-26
 title: R1b — Combo song song (nhiều KTV làm cùng lúc)
-status: todo
+status: review
 model: opus
 effort: high
 depends_on: [T-19]      # combo serial R1a (đã merge) — mở rộng lib combo
@@ -64,8 +64,8 @@ thời) → khách xong nhanh hơn. Khách CHỌN kiểu (nối tiếp hay song 
   nửa combo). §8/§9.
 
 ## Checklist đầu ra
-- [ ] typecheck · npm test · e2e --workers=1 xanh (serial R1a KHÔNG hồi quy)
-- [ ] status review + "Đã làm gì"
+- [x] typecheck · npm test · e2e --workers=1 xanh (serial R1a KHÔNG hồi quy)
+- [x] status review + "Đã làm gì"
 
 ## Test phải viết
 - `song song 2 dịch vụ, 2 KTV đủ skill, khác zone → đặt được, 2 item cùng appointment`
@@ -86,4 +86,60 @@ tử (không nửa combo); serial R1a không hồi quy.
 - Tìm khung đủ N KTV rảnh ĐỒNG THỜI là phần khó nhất — cẩn thận độ phức tạp query.
 
 ## Đã làm gì
-(agent điền khi xong)
+
+Thêm combo SONG SONG (R1b) bên cạnh serial R1a, khách CHỌN kiểu ở màn combo-time.
+
+**Mô hình song song đã chốt:** mọi leg bắt đầu CÙNG `start_at`, mỗi leg 1 KTV
+RIÊNG đủ skill CỦA LEG ĐÓ (khác serial: 1 KTV đủ MỌI skill). Vì mọi leg chồng
+giờ nhau → tất cả body_zone phải KHÁC nhau (thuộc tính của TẬP dịch vụ, báo
+`coverable:false` trước khi đặt). Xong sau ~ leg dài nhất (không cộng dồn).
+
+**lib/combo.ts (thuần, không D1):**
+- `parallelZonesDistinct`, `parallelSpanSec`.
+- `assignParallel` — bipartite matching (Kuhn augmenting-path) gán mỗi leg 1 KTV
+  KHÁC NHAU đủ skill + rảnh; trả `null` khi không có matching hoàn hảo. Leg ít →
+  nhanh & tất định (candidate list tăng dần → matching đầu tiên ổn định giữa
+  preview và write).
+- `computeParallelAvailability` — mỗi grid start: dựng candidate mỗi leg (skill +
+  cả window nằm gọn 1 shift + rảnh), rồi `assignParallel`. Slot sống chỉ khi có
+  matching.
+- `layoutParallel` — mọi item cùng start, mỗi item mang staff_id được gán.
+
+**routes/combo.ts (MỞ RỘNG, serial giữ nguyên):** thêm `mode:'serial'|'parallel'`
+(mặc định serial → R1a caller cũ không đổi). Parallel availability: coverable =
+mọi leg có KTV + zones distinct; load shift/timeoff/busy cho MỌI KTV đủ skill BẤT
+KỲ leg. Parallel booking `bookParallel`: NGUYÊN TỬ — 1 appointment + N item trong
+1 `db.batch`, MỌI statement gác trên `allFreeGuard` (AND của "từng KTV rảnh window
+leg mình" trên PRE-EXISTING). 1 leg bị cướp KTV → appointment không insert →
+`last_insert_rowid()` vô dụng + guard chặn item → KHÔNG leg nào ghi (không nửa
+combo). Items 1 statement multi-row VALUES để `last_insert_rowid()` = appointment
+cho mọi row. `staff_id` bị TỪ CHỐI (422) ở parallel (N KTV, không phải 1). Phản
+hồi parallel: `staff:null` + `staff_by_id` roster để UI hiện "ai làm gì".
+
+**SPA BookingPage.tsx:** màn combo-time thêm bước CHỌN KIỂU (2 card serial/parallel
+giải thích rõ khác biệt + thời gian ~). Parallel: slot → hiện "AI LÀM GÌ LÚC NÀO"
+(mỗi dịch vụ · KTV #x · giờ) TRƯỚC khi cam kết. Confirm/Done hiện kiểu + KTV từng
+leg. Uncoverable serial gợi ý thử song song; uncoverable parallel gợi ý trùng zone/
+thiếu KTV. apiClient: `mode` trong ComboMode + `staff_by_id` trong result.
+
+**GATE 1 (5 câu, đã trả lời trong session):** actor=khách thật chọn ≥2 dịch vụ
+muốn xong nhanh; coverage layers = skill-per-leg + N-tech đồng thời + zone-set +
+atomicity; ràng buộc HIỆN TRƯỚC (uncoverable/zone/thiếu người → báo trước, chỉ
+race thật → SLOT_TAKEN quay lại chọn giờ); parallel≠serial (KTV riêng/leg, KHÔNG
+ép 1 KTV đủ mọi skill, KHÔNG layout nối tiếp); atomicity = all-or-none 1 batch.
+
+**GATE 2:** typecheck sạch · vitest 396 pass (unit 18 combo + api 17 combo mới,
+gồm test "1 leg bị cướp KTV → 0 leg đặt, no half-combo") · e2e --workers=1: 88
+pass / 1 skip (serial R1a + mọi flow KHÔNG hồi quy) trên PORT RIÊNG 5199 (5173 do
+main worktree chiếm). Xác minh mắt: khách chọn Massage+Móng → song song → thấy KTV
+#23 (15:45–16:45) + KTV #25 (15:45–16:30) cùng bắt đầu → đặt được, không nửa combo.
+
+**Test đã viết (đúng card):** song song 2 dịch vụ 2 KTV khác zone → đặt được 2 item
+cùng appointment KTV khác nhau · chỉ đủ 1 KTV (dù đủ mọi skill) → coverable nhưng
+0 slot, báo trước · 2 leg cùng body_zone → bị chặn (ZONE_CONFLICT/coverable:false) ·
+1 leg bị cướp KTV → KHÔNG leg nào đặt (nguyên tử) · serial R1a không hồi quy · E2E
+khách chọn song song thấy ai làm gì → đặt thành công.
+
+**File đụng:** src/worker/lib/combo.ts, src/worker/routes/combo.ts,
+src/app/routes/booking/BookingPage.tsx, src/app/lib/apiClient.ts,
+tests/unit/combo.test.ts, tests/api/combo.test.ts, tests/e2e/customer-combo.spec.ts.

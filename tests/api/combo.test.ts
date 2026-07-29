@@ -322,3 +322,239 @@ describe('POST /api/combo/bookings', () => {
     expect(body.error.code).toBe('STAFF_LACKS_SKILL')
   })
 })
+
+// ===========================================================================
+// PARALLEL combo (R1b) — many services, DIFFERENT techs, SAME start. The core
+// safety property is ATOMICITY: all legs book, or none — never a half-combo.
+// ===========================================================================
+describe('POST /api/combo/availability?mode=parallel', () => {
+  beforeEach(wipe)
+
+  it('song song 2 dịch vụ, 2 KTV đủ skill, khác zone → coverable:true, slot có 2 KTV KHÁC NHAU', async () => {
+    const massage = await insertSkill('Massage')
+    const nails = await insertSkill('Móng')
+    const huong = await insertStaff('Huong', [massage]) // leg1 only
+    const mai = await insertStaff('Mai', [nails]) // leg2 only
+    await insertAllDayShift(huong)
+    await insertAllDayShift(mai)
+    const vMassage = await insertVariant(massage, { duration: 60, buffer: 10, zone: 'body' })
+    const vNails = await insertVariant(nails, { duration: 45, buffer: 5, zone: 'hands' })
+
+    const { status, body } = await post('/api/combo/availability', {
+      variant_ids: [vMassage, vNails],
+      date: DATE,
+      mode: 'parallel',
+    })
+    expect(status).toBe(200)
+    expect(body.coverable).toBe(true)
+    expect(body.slots.length).toBeGreaterThan(0)
+    for (const s of body.slots) {
+      expect(s.staff_ids).toHaveLength(2)
+      expect(new Set(s.staff_ids).size).toBe(2) // distinct techs, one per leg
+    }
+  })
+
+  it('song song mà chỉ đủ 1 KTV rảnh (dù đủ mọi skill) → coverable:true nhưng slots rỗng (báo trước khi đặt)', async () => {
+    // ONE super-tech holds both skills. Serial would work; parallel needs TWO
+    // bodies at once → no slot. coverable:true (skills exist, zones ok), 0 slots.
+    const massage = await insertSkill('Massage')
+    const nails = await insertSkill('Móng')
+    const lan = await insertStaff('Lan', [massage, nails])
+    await insertAllDayShift(lan)
+    const vMassage = await insertVariant(massage, { duration: 60, buffer: 10, zone: 'body' })
+    const vNails = await insertVariant(nails, { duration: 45, buffer: 5, zone: 'hands' })
+
+    const { status, body } = await post('/api/combo/availability', {
+      variant_ids: [vMassage, vNails],
+      date: DATE,
+      mode: 'parallel',
+    })
+    expect(status).toBe(200)
+    expect(body.coverable).toBe(true)
+    expect(body.slots).toEqual([])
+  })
+
+  it('song song 2 dịch vụ CÙNG body_zone → coverable:false (không làm cùng vùng cùng lúc)', async () => {
+    const massage = await insertSkill('Massage')
+    const scrub = await insertSkill('Tẩy da') // different skill, SAME zone 'body'
+    const huong = await insertStaff('Huong', [massage])
+    const mai = await insertStaff('Mai', [scrub])
+    await insertAllDayShift(huong)
+    await insertAllDayShift(mai)
+    const vMassage = await insertVariant(massage, { duration: 60, buffer: 10, zone: 'body' })
+    const vScrub = await insertVariant(scrub, { duration: 45, buffer: 5, zone: 'body' }) // same zone
+
+    const { status, body } = await post('/api/combo/availability', {
+      variant_ids: [vMassage, vScrub],
+      date: DATE,
+      mode: 'parallel',
+    })
+    expect(status).toBe(200)
+    expect(body.coverable).toBe(false)
+    expect(body.slots).toEqual([])
+  })
+})
+
+describe('POST /api/combo/bookings mode=parallel', () => {
+  beforeEach(wipe)
+
+  it('happy: đặt song song → 1 appointment, 2 items cùng start, KTV KHÁC NHAU', async () => {
+    const massage = await insertSkill('Massage')
+    const nails = await insertSkill('Móng')
+    const huong = await insertStaff('Huong', [massage])
+    const mai = await insertStaff('Mai', [nails])
+    await insertAllDayShift(huong)
+    await insertAllDayShift(mai)
+    const vMassage = await insertVariant(massage, { duration: 60, buffer: 10, zone: 'body' })
+    const vNails = await insertVariant(nails, { duration: 45, buffer: 5, zone: 'hands' })
+
+    const avail = await post('/api/combo/availability', { variant_ids: [vMassage, vNails], date: DATE, mode: 'parallel' })
+    const startAt = avail.body.slots[0].start_at as number
+
+    const phone = `09${Math.floor(100000000 + Math.random() * 900000000)}`.slice(0, 10)
+    const { status, body } = await post('/api/combo/bookings', {
+      customer: { name: 'Nguyen Song Song', phone },
+      variant_ids: [vMassage, vNails],
+      start_at: startAt,
+      mode: 'parallel',
+    })
+    expect(status).toBe(201)
+    expect(body.items).toHaveLength(2)
+    const [i1, i2] = body.items
+    // Parallel: BOTH items start at the SAME instant.
+    expect(i1.start_at).toBe(startAt)
+    expect(i2.start_at).toBe(startAt)
+    // Different technicians (one per leg).
+    expect(i1.staff_id).not.toBe(i2.staff_id)
+    expect(new Set([i1.staff_id, i2.staff_id])).toEqual(new Set([huong, mai]))
+    // Same appointment.
+    expect(i1.appointment_id).toBe(body.appointment.id)
+    expect(i2.appointment_id).toBe(body.appointment.id)
+    // Response exposes the per-tech roster so UI shows "ai làm gì".
+    expect(body.staff_by_id).toBeDefined()
+    expect(new Set(body.staff_by_id.map((s: { id: number }) => s.id))).toEqual(new Set([huong, mai]))
+  })
+
+  it('ATOMIC: 1 leg bị cướp KTV giữa preview và đặt → KHÔNG leg nào được đặt (no half-combo)', async () => {
+    const massage = await insertSkill('Massage')
+    const nails = await insertSkill('Móng')
+    const huong = await insertStaff('Huong', [massage]) // ONLY tech for leg1
+    const mai = await insertStaff('Mai', [nails]) // ONLY tech for leg2
+    await insertAllDayShift(huong)
+    await insertAllDayShift(mai)
+    const vMassage = await insertVariant(massage, { duration: 60, buffer: 10, zone: 'body' })
+    const vNails = await insertVariant(nails, { duration: 45, buffer: 5, zone: 'hands' })
+
+    const avail = await post('/api/combo/availability', { variant_ids: [vMassage, vNails], date: DATE, mode: 'parallel' })
+    const startAt = avail.body.slots[0].start_at as number
+
+    // SIMULATE THE RACE: after preview, someone books Mai (leg2's only tech) at
+    // exactly startAt for an overlapping block. Now leg2 cannot be staffed.
+    await insertBusyItem(mai, vNails, startAt, 45, 5)
+
+    const before = await db.prepare('SELECT COUNT(*) AS n FROM appointments').first<{ n: number }>()
+    const itemsBefore = await db.prepare('SELECT COUNT(*) AS n FROM booking_items').first<{ n: number }>()
+
+    const phone = `09${Math.floor(100000000 + Math.random() * 900000000)}`.slice(0, 10)
+    const { status, body } = await post('/api/combo/bookings', {
+      customer: { name: 'Khach Song Song', phone },
+      variant_ids: [vMassage, vNails],
+      start_at: startAt,
+      mode: 'parallel',
+    })
+    expect(status).toBe(409)
+    expect(body.error.code).toBe('SLOT_TAKEN')
+
+    // THE CORE ASSERTION: no half-combo. leg1 (Huong, still free) must NOT be
+    // booked on its own — either both legs or none. Only the pre-existing Mai
+    // booking may remain; NO new combo appointment, NO new massage item.
+    const after = await db.prepare('SELECT COUNT(*) AS n FROM appointments').first<{ n: number }>()
+    expect(after!.n).toBe(before!.n) // no new appointment
+    const itemsAfter = await db.prepare('SELECT COUNT(*) AS n FROM booking_items').first<{ n: number }>()
+    expect(itemsAfter!.n).toBe(itemsBefore!.n) // no new item at all (leg1 not booked)
+    // Huong (leg1's tech) has NO booking → she was not half-committed.
+    const huongItems = await db.prepare('SELECT COUNT(*) AS n FROM booking_items WHERE staff_id = ?').bind(huong).first<{ n: number }>()
+    expect(huongItems!.n).toBe(0)
+  })
+
+  it('đặt song song cùng body_zone → 409 ZONE_CONFLICT, không tạo gì', async () => {
+    const massage = await insertSkill('Massage')
+    const scrub = await insertSkill('Tẩy da')
+    const huong = await insertStaff('Huong', [massage])
+    const mai = await insertStaff('Mai', [scrub])
+    await insertAllDayShift(huong)
+    await insertAllDayShift(mai)
+    const vMassage = await insertVariant(massage, { duration: 60, buffer: 10, zone: 'body' })
+    const vScrub = await insertVariant(scrub, { duration: 45, buffer: 5, zone: 'body' }) // same zone
+
+    const { start: dayStart } = localDayBounds(DATE)
+    const startAt = dayStart + 3600 // 01:00 local, on grid, future
+
+    const before = await db.prepare('SELECT COUNT(*) AS n FROM appointments').first<{ n: number }>()
+    const { status, body } = await post('/api/combo/bookings', {
+      customer: { name: 'Khach', phone: '0912345222' },
+      variant_ids: [vMassage, vScrub],
+      start_at: startAt,
+      mode: 'parallel',
+    })
+    expect(status).toBe(409)
+    expect(body.error.code).toBe('ZONE_CONFLICT')
+    const after = await db.prepare('SELECT COUNT(*) AS n FROM appointments').first<{ n: number }>()
+    expect(after!.n).toBe(before!.n)
+  })
+
+  it('song song không nhận staff_id → 422 VALIDATION', async () => {
+    const massage = await insertSkill('Massage')
+    const nails = await insertSkill('Móng')
+    const huong = await insertStaff('Huong', [massage])
+    const mai = await insertStaff('Mai', [nails])
+    await insertAllDayShift(huong)
+    await insertAllDayShift(mai)
+    const vMassage = await insertVariant(massage, { duration: 60, buffer: 10, zone: 'body' })
+    const vNails = await insertVariant(nails, { duration: 45, buffer: 5, zone: 'hands' })
+
+    const { status, body } = await post('/api/combo/bookings', {
+      customer: { name: 'Khach', phone: '0912345333' },
+      variant_ids: [vMassage, vNails],
+      start_at: localDayBounds(DATE).start + 3600,
+      mode: 'parallel',
+      staff_id: huong,
+    })
+    expect(status).toBe(422)
+    expect(body.error.code).toBe('VALIDATION')
+  })
+})
+
+// SERIAL R1a NON-REGRESSION: a booking WITHOUT mode (or mode:'serial') still
+// behaves exactly as before — one tech, contiguous items.
+describe('serial R1a không hồi quy khi thêm mode', () => {
+  beforeEach(wipe)
+
+  it("mode:'serial' tường minh == bỏ trống mode: 1 KTV, 2 item nối tiếp", async () => {
+    const massage = await insertSkill('Massage')
+    const nails = await insertSkill('Móng')
+    const lan = await insertStaff('Lan', [massage, nails])
+    await insertAllDayShift(lan)
+    const vMassage = await insertVariant(massage, { duration: 60, buffer: 10, zone: 'body' })
+    const vNails = await insertVariant(nails, { duration: 45, buffer: 5, zone: 'hands' })
+
+    const avail = await post('/api/combo/availability', { variant_ids: [vMassage, vNails], date: DATE, mode: 'serial' })
+    expect(avail.body.coverable).toBe(true)
+    const startAt = avail.body.slots[0].start_at as number
+
+    const phone = `09${Math.floor(100000000 + Math.random() * 900000000)}`.slice(0, 10)
+    const { status, body } = await post('/api/combo/bookings', {
+      customer: { name: 'Serial Khach', phone },
+      variant_ids: [vMassage, vNails],
+      start_at: startAt,
+      mode: 'serial',
+    })
+    expect(status).toBe(201)
+    expect(body.staff.id).toBe(lan) // ONE tech for the whole serial combo
+    expect(body.items).toHaveLength(2)
+    const [i1, i2] = body.items
+    expect(i2.start_at).toBe(i1.block_end_at) // contiguous (serial)
+    expect(i1.staff_id).toBe(lan)
+    expect(i2.staff_id).toBe(lan)
+  })
+})

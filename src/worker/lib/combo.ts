@@ -145,6 +145,228 @@ export function computeComboAvailability(input: ComboAvailabilityInput): ComboSl
     .map(([start_at, staff_ids]) => ({ start_at, staff_ids: staff_ids.slice().sort((x, y) => x - y) }))
 }
 
+// ===========================================================================
+// PARALLEL combo (R1b) — MULTIPLE technicians serving the legs AT THE SAME TIME
+// ===========================================================================
+//
+// A "parallel combo" is ONE customer picking MULTIPLE service variants for ONE
+// visit, served by DIFFERENT technicians ALL STARTING AT THE SAME instant, so
+// the customer is done in the time of the LONGEST leg instead of the sum. This
+// is a fundamentally different shape from serial (R1a) — do not confuse them:
+//
+//   serial   : ONE tech holds EVERY skill, legs laid out back-to-back.
+//   parallel : each leg gets its OWN tech holding just THAT leg's skill; the
+//              techs are DISTINCT (one body, one tech at a time — you cannot be
+//              two places at once) and every leg starts at the same `start_at`.
+//
+// Because every leg runs over the SAME window `[start_at, start_at + leg.block)`,
+// EVERY pair of legs overlaps in time. The intra-appointment zone rule
+// (CONVENTIONS §6: overlapping items must differ in body_zone) therefore means
+// ALL legs must have DISTINCT body_zones — you cannot do two things on the same
+// body zone simultaneously. That is a property of the CHOSEN SET, independent of
+// the day/time, so it is reported up front as "not coverable" (see routes).
+//
+// A start time is FEASIBLE only when the legs can be matched one-to-one to
+// DISTINCT free qualified technicians — a bipartite matching. `assignParallel`
+// below is the single place that matching lives; both the availability search
+// and the write re-run it so a slot offered can never be a slot the write
+// rejects.
+
+/** A leg carrying its body_zone too — parallel needs the zone for the set-level
+ *  distinctness check (serial does not, so ComboLeg stays zone-free). */
+export interface ZonedComboLeg extends ComboLeg {
+  body_zone: string
+}
+
+/**
+ * Do the chosen legs have PAIRWISE-DISTINCT body_zones? Parallel legs all share
+ * the same time window, so any two sharing a zone is an unresolvable conflict
+ * for the whole set — shown before the customer commits, never after.
+ */
+export function parallelZonesDistinct(legs: ZonedComboLeg[]): boolean {
+  const seen = new Set<string>()
+  for (const leg of legs) {
+    if (seen.has(leg.body_zone)) return false
+    seen.add(leg.body_zone)
+  }
+  return true
+}
+
+/** The longest leg block (seconds) — the wall-clock length of the parallel
+ *  combo, since all legs start together and end when the longest finishes. */
+export function parallelSpanSec(legs: ComboLeg[]): number {
+  let max = 0
+  for (const leg of legs) {
+    const block = (leg.duration_min + leg.buffer_after_min) * 60
+    if (block > max) max = block
+  }
+  return max
+}
+
+/** Is a technician free for the whole window `[start, blockEnd)` (half-open,
+ *  CONVENTIONS §2) given their busy items? Time-off is folded into busyItems by
+ *  the caller when needed, but here we take only staff-specific busy holes. */
+function staffFreeInWindow(
+  staffId: number,
+  start: number,
+  blockEnd: number,
+  busyByStaff: Map<number, Interval[]>,
+): boolean {
+  const holes = busyByStaff.get(staffId)
+  if (holes === undefined) return true
+  for (const h of holes) {
+    if (start < h.end && h.start < blockEnd) return false // half-open overlap
+  }
+  return true
+}
+
+/**
+ * Bipartite matching: assign EACH leg to a DISTINCT technician who (a) holds the
+ * leg's skill and (b) is free for that leg's window `[start_at, start_at+block)`
+ * AND inside a working shift (encoded by the caller as "candidate ids" per leg).
+ *
+ * `candidatesPerLeg[i]` is the set of staff ids eligible for leg i at this
+ * start (already filtered to skill + shift-fit + free). Returns an assignment
+ * `staffIdPerLeg` (same order as legs) or `null` when no perfect matching
+ * exists — i.e. the parallel combo cannot be staffed at this start.
+ *
+ * Kabuki-simple augmenting-path (Hungarian/Kuhn) — leg count is tiny (a combo
+ * is a handful of services), so this is trivially fast and, crucially,
+ * DETERMINISTIC: candidate lists are ascending, so the first feasible matching
+ * found is stable across the preview and the write.
+ */
+export function assignParallel(candidatesPerLeg: number[][]): number[] | null {
+  const n = candidatesPerLeg.length
+  const matchStaffToLeg = new Map<number, number>() // staff id -> leg index
+  const legStaff = new Array<number>(n).fill(-1)
+
+  function augment(leg: number, visited: Set<number>): boolean {
+    for (const staffId of candidatesPerLeg[leg]!) {
+      if (visited.has(staffId)) continue
+      visited.add(staffId)
+      const taken = matchStaffToLeg.get(staffId)
+      if (taken === undefined || augment(taken, visited)) {
+        matchStaffToLeg.set(staffId, leg)
+        legStaff[leg] = staffId
+        return true
+      }
+    }
+    return false
+  }
+
+  for (let leg = 0; leg < n; leg++) {
+    if (!augment(leg, new Set<number>())) return null
+  }
+  return legStaff
+}
+
+export interface ParallelAvailabilityInput {
+  legs: ZonedComboLeg[]
+  /** Active staff with their held skill ids (unfiltered — this fn filters). */
+  staff: StaffWithSkills[]
+  shifts: Pick<WorkShift, 'staff_id' | 'start_min' | 'end_min'>[]
+  timeOff: TimeOffInterval[]
+  busyItems: BusyItem[]
+  dayStart: number
+  dayEnd: number
+  now: number
+}
+
+export interface ParallelSlot {
+  start_at: number
+  /** The concrete leg→staff assignment for THIS start (same order as legs). */
+  staff_ids: number[]
+}
+
+/**
+ * Which 15-minute grid start times let the parallel combo be staffed by DISTINCT
+ * qualified free technicians, and one concrete assignment for each.
+ *
+ * For every grid start we:
+ *   1. build, per leg, the set of technicians who hold that leg's skill AND have
+ *      the whole leg window inside one shift AND are free of prior bookings/
+ *      time-off across it;
+ *   2. run `assignParallel` to see if the legs can be matched to DISTINCT techs.
+ *
+ * A start survives only when a perfect matching exists. Returned ascending by
+ * start; each assignment is the deterministic first matching. The zone-set check
+ * is NOT done here (it is a set-level property handled by the route as an
+ * up-front "not coverable"); this function assumes the set already passed it.
+ */
+export function computeParallelAvailability(input: ParallelAvailabilityInput): ParallelSlot[] {
+  const { legs, staff, shifts, timeOff, busyItems, dayStart, dayEnd, now } = input
+  if (legs.length === 0) return []
+
+  const gridSec = GRID_MIN * 60
+  const earliest = now > dayStart ? ceilToGrid(now) : dayStart
+
+  // Per-staff working windows (as intervals) and busy holes (bookings+timeoff).
+  const activeStaff = staff.filter((s) => s.active)
+  const shiftsByStaff = new Map<number, Interval[]>()
+  for (const shift of shifts) {
+    const start = Math.max(minutesToEpoch(dayStart, shift.start_min), dayStart)
+    const end = Math.min(minutesToEpoch(dayStart, shift.end_min), dayEnd)
+    if (end > start) {
+      const arr = shiftsByStaff.get(shift.staff_id)
+      if (arr === undefined) shiftsByStaff.set(shift.staff_id, [{ start, end }])
+      else arr.push({ start, end })
+    }
+  }
+  const busyByStaff = new Map<number, Interval[]>()
+  const pushHole = (staffId: number, h: Interval) => {
+    const arr = busyByStaff.get(staffId)
+    if (arr === undefined) busyByStaff.set(staffId, [h])
+    else arr.push(h)
+  }
+  for (const off of timeOff) pushHole(off.staff_id, { start: off.start_at, end: off.end_at })
+  for (const item of busyItems) pushHole(item.staff_id, { start: item.start_at, end: item.block_end_at })
+
+  // Pre-compute, per leg, the technicians holding that leg's skill (parallel:
+  // ONE skill per leg, NOT every skill — the serial/parallel distinction).
+  const qualifiedPerLeg = legs.map((leg) =>
+    activeStaff.filter((s) => s.skillIds.has(leg.skill_id)).map((s) => s.id),
+  )
+  // If any leg has NO qualified technician at all, no start can ever work.
+  for (const q of qualifiedPerLeg) if (q.length === 0) return []
+
+  const legBlockSec = legs.map((l) => (l.duration_min + l.buffer_after_min) * 60)
+
+  // The search only needs to consider grid starts inside the UNION of shifts of
+  // any staff that could serve any leg; walking the whole day grid is fine too,
+  // but bounding to [earliest, dayEnd) keeps it tight.
+  const slots: ParallelSlot[] = []
+  const spanSec = parallelSpanSec(legs)
+  let t = ceilToGrid(earliest)
+  for (; t + spanSec <= dayEnd; t += gridSec) {
+    const candidatesPerLeg: number[][] = []
+    let anyLegEmpty = false
+    for (let i = 0; i < legs.length; i++) {
+      const blockEnd = t + legBlockSec[i]!
+      const cands: number[] = []
+      for (const staffId of qualifiedPerLeg[i]!) {
+        // whole leg window must sit inside ONE shift of this staff
+        const windows = shiftsByStaff.get(staffId)
+        if (windows === undefined) continue
+        const inShift = windows.some((w) => w.start <= t && blockEnd <= w.end)
+        if (!inShift) continue
+        if (!staffFreeInWindow(staffId, t, blockEnd, busyByStaff)) continue
+        cands.push(staffId)
+      }
+      if (cands.length === 0) {
+        anyLegEmpty = true
+        break
+      }
+      candidatesPerLeg.push(cands) // already ascending (qualifiedPerLeg is)
+    }
+    if (anyLegEmpty) continue
+
+    const assignment = assignParallel(candidatesPerLeg)
+    if (assignment !== null) slots.push({ start_at: t, staff_ids: assignment })
+  }
+
+  return slots
+}
+
 /** One concrete item once the chain is anchored at a start time. */
 export interface LaidOutItem {
   variant_id: number
@@ -175,4 +397,38 @@ export function layoutChain(
     cursor = blockEndAt // next leg starts after this leg's buffer (serial)
   }
   return { items, endAt: lastEndAt, blockEndAt: cursor }
+}
+
+/** One parallel item: same `start_at` as the whole combo, its own block, plus
+ *  the technician assigned to it (parallel legs each ride a DIFFERENT tech). */
+export interface ParallelItem extends LaidOutItem {
+  staff_id: number
+}
+
+/**
+ * Lays the parallel combo out: EVERY leg starts at `startAt` and runs for its
+ * own `duration+buffer`, on the technician `staffIds[i]` assigned to leg i (from
+ * `assignParallel`). The overall `endAt` (display) is the LONGEST leg's service
+ * end; `blockEndAt` is the longest block end — the customer is done then.
+ *
+ * This is the SINGLE place the parallel layout is computed, shared by the write
+ * path and any preview, mirroring `layoutChain` for serial.
+ */
+export function layoutParallel(
+  legs: ComboLeg[],
+  startAt: number,
+  staffIds: number[],
+): { items: ParallelItem[]; endAt: number; blockEndAt: number } {
+  const items: ParallelItem[] = []
+  let maxEndAt = startAt
+  let maxBlockEndAt = startAt
+  for (let i = 0; i < legs.length; i++) {
+    const leg = legs[i]!
+    const endAt = startAt + leg.duration_min * 60
+    const blockEndAt = endAt + leg.buffer_after_min * 60
+    items.push({ variant_id: leg.variant_id, start_at: startAt, end_at: endAt, block_end_at: blockEndAt, staff_id: staffIds[i]! })
+    if (endAt > maxEndAt) maxEndAt = endAt
+    if (blockEndAt > maxBlockEndAt) maxBlockEndAt = blockEndAt
+  }
+  return { items, endAt: maxEndAt, blockEndAt: maxBlockEndAt }
 }

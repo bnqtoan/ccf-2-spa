@@ -24,12 +24,18 @@
 // means "someone can do it, just not on this day" — a normal empty state.
 
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import {
   type ComboLeg,
   type StaffWithSkills,
+  type ZonedComboLeg,
+  assignParallel,
   computeComboAvailability,
+  computeParallelAvailability,
   coversAllSkills,
   layoutChain,
+  layoutParallel,
+  parallelZonesDistinct,
   requiredSkillIds,
 } from '../lib/combo.ts'
 import { localDayBounds, localParts, parseDateStr, weekdayOf } from '../lib/time.ts'
@@ -94,7 +100,7 @@ function parseVariantIds(raw: unknown): number[] | null {
 async function loadVariantsAndStaff(
   db: D1Database,
   variantIds: number[],
-): Promise<{ legs: ComboLeg[] | null; zonesByVariant: string[]; staff: StaffWithSkills[] }> {
+): Promise<{ legs: ComboLeg[] | null; zonedLegs: ZonedComboLeg[]; zonesByVariant: string[]; staff: StaffWithSkills[] }> {
   const uniqueIds = [...new Set(variantIds)]
   const ph = placeholders(uniqueIds.length)
   const variantRes = await db
@@ -111,7 +117,7 @@ async function loadVariantsAndStaff(
   for (const r of variantRes.results) byId.set(r.id, r)
 
   // Any unknown variant id → the whole combo is unresolvable.
-  for (const id of variantIds) if (!byId.has(id)) return { legs: null, zonesByVariant: [], staff: [] }
+  for (const id of variantIds) if (!byId.has(id)) return { legs: null, zonedLegs: [], zonesByVariant: [], staff: [] }
 
   // Re-expand to request order (and duplicates) — the chain is ORDERED.
   const legs: ComboLeg[] = variantIds.map((id) => {
@@ -119,6 +125,8 @@ async function loadVariantsAndStaff(
     return { variant_id: r.id, duration_min: r.duration_min, buffer_after_min: r.buffer_after_min, skill_id: r.skill_id }
   })
   const zonesByVariant = variantIds.map((id) => byId.get(id)!.body_zone)
+  // Parallel needs the zone on the leg for the set-level distinctness check.
+  const zonedLegs: ZonedComboLeg[] = legs.map((l, i) => ({ ...l, body_zone: zonesByVariant[i]! }))
 
   const staffRes = await db
     .prepare(
@@ -139,7 +147,15 @@ async function loadVariantsAndStaff(
     entry.skillIds.add(row.skill_id)
   }
 
-  return { legs, zonesByVariant, staff: [...staffMap.values()] }
+  return { legs, zonedLegs, zonesByVariant, staff: [...staffMap.values()] }
+}
+
+/** Parses the optional `mode` param. Default 'serial' keeps R1a untouched for
+ *  callers that omit it. Any other string is a validation error. */
+function parseMode(raw: unknown): 'serial' | 'parallel' | null {
+  if (raw === undefined || raw === null || raw === 'serial') return 'serial'
+  if (raw === 'parallel') return 'parallel'
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +164,7 @@ async function loadVariantsAndStaff(
 routes.post('/api/combo/availability', async (c) => {
   const db = c.env.DB
 
-  let payload: { variant_ids?: unknown; date?: unknown; staff_id?: unknown }
+  let payload: { variant_ids?: unknown; date?: unknown; staff_id?: unknown; mode?: unknown }
   try {
     payload = (await c.req.json()) as typeof payload
   } catch {
@@ -170,12 +186,79 @@ routes.post('/api/combo/availability', async (c) => {
       return c.json(errorBody('VALIDATION', 'staff_id phải là số nguyên dương'), 422)
     }
   }
+  const mode = parseMode(payload.mode)
+  if (mode === null) {
+    return c.json(errorBody('VALIDATION', "mode phải là 'serial' hoặc 'parallel'"), 422)
+  }
 
-  const { legs, staff } = await loadVariantsAndStaff(db, variantIds)
+  const { legs, zonedLegs, staff } = await loadVariantsAndStaff(db, variantIds)
   if (legs === null) {
     return c.json(errorBody('NOT_FOUND', 'Có dịch vụ trong combo không tồn tại'), 404)
   }
 
+  const { start: dayStart, end: dayEnd } = localDayBounds(date)
+  const weekday = weekdayOf(date)
+
+  // -------------------------------------------------------------------------
+  // PARALLEL (R1b): every leg its OWN distinct tech, all at the SAME start.
+  // -------------------------------------------------------------------------
+  if (mode === 'parallel') {
+    // staff_id has no meaning for parallel (there are N techs, not one) —
+    // reject it rather than silently ignore, so the contract stays honest.
+    if (staffId !== null) {
+      return c.json(errorBody('VALIDATION', 'song song không nhận staff_id (mỗi dịch vụ một KTV riêng)'), 422)
+    }
+    // Set-level "coverable" for parallel = BOTH:
+    //  (a) every leg has at least one active qualified technician, AND
+    //  (b) the chosen legs have pairwise-distinct body_zones (they all overlap
+    //      in time, so two same-zone legs can never run together).
+    // Whether N DISTINCT techs are simultaneously free is a per-day/per-slot
+    // question answered by the engine (empty slots), not a coverage failure.
+    const active = staff.filter((s) => s.active)
+    const everyLegHasTech = zonedLegs.every((leg) => active.some((s) => s.skillIds.has(leg.skill_id)))
+    const zonesOk = parallelZonesDistinct(zonedLegs)
+    if (!everyLegHasTech || !zonesOk) {
+      return c.json({ coverable: false, slots: [] })
+    }
+
+    // Load shifts/timeoff/busy for EVERY active tech qualified for ANY leg.
+    const neededSkills = new Set(zonedLegs.map((l) => l.skill_id))
+    const poolIds = active.filter((s) => [...s.skillIds].some((sk) => neededSkills.has(sk))).map((s) => s.id)
+    const ph = placeholders(poolIds.length)
+    const [shiftRes, timeOffRes, busyRes] = await Promise.all([
+      db
+        .prepare(`SELECT staff_id, start_min, end_min FROM work_shifts WHERE weekday = ? AND staff_id IN (${ph})`)
+        .bind(weekday, ...poolIds)
+        .all<Pick<WorkShift, 'staff_id' | 'start_min' | 'end_min'>>(),
+      db
+        .prepare(`SELECT staff_id, start_at, end_at FROM time_off WHERE staff_id IN (${ph}) AND start_at < ? AND end_at > ?`)
+        .bind(...poolIds, dayEnd, dayStart)
+        .all<TimeOffInterval>(),
+      db
+        .prepare(
+          `SELECT staff_id, start_at, block_end_at FROM booking_items
+           WHERE staff_id IN (${ph}) AND status IN ('booked','in_service') AND start_at < ? AND block_end_at > ?`,
+        )
+        .bind(...poolIds, dayEnd, dayStart)
+        .all<BusyItem>(),
+    ])
+
+    const slots = computeParallelAvailability({
+      legs: zonedLegs,
+      staff: active,
+      shifts: shiftRes.results,
+      timeOff: timeOffRes.results,
+      busyItems: busyRes.results,
+      dayStart,
+      dayEnd,
+      now: serverNow(c),
+    })
+    return c.json({ coverable: true, slots })
+  }
+
+  // -------------------------------------------------------------------------
+  // SERIAL (R1a) — unchanged.
+  // -------------------------------------------------------------------------
   // Skill-coverage: does ANY active technician hold every required skill?
   // This is the "shown BEFORE commit" gate. When staff_id is given, coverage
   // is judged for THAT technician only.
@@ -187,9 +270,6 @@ routes.post('/api/combo/availability', async (c) => {
     // this into a plain-language message, never a raw error.
     return c.json({ coverable: false, slots: [] })
   }
-
-  const { start: dayStart, end: dayEnd } = localDayBounds(date)
-  const weekday = weekdayOf(date)
 
   // Only the covering technicians need their shifts/timeoff/busy loaded.
   const coveringIds = pool.filter((s) => coversAllSkills(s, required)).map((s) => s.id)
@@ -237,6 +317,7 @@ routes.post('/api/combo/bookings', async (c) => {
     variant_ids?: unknown
     start_at?: unknown
     staff_id?: unknown
+    mode?: unknown
   }
   try {
     payload = (await c.req.json()) as typeof payload
@@ -264,15 +345,36 @@ routes.post('/api/combo/bookings', async (c) => {
       return c.json(errorBody('VALIDATION', 'staff_id phải là số nguyên dương'), 422)
     }
   }
+  const mode = parseMode(payload.mode)
+  if (mode === null) {
+    return c.json(errorBody('VALIDATION', "mode phải là 'serial' hoặc 'parallel'"), 422)
+  }
 
-  const { legs, staff } = await loadVariantsAndStaff(db, variantIds)
+  const { legs, zonedLegs, staff } = await loadVariantsAndStaff(db, variantIds)
   if (legs === null) return c.json(errorBody('NOT_FOUND', 'Có dịch vụ trong combo không tồn tại'), 404)
 
-  const required = requiredSkillIds(legs)
   const now = serverNow(c)
   const date = localDateStr(startAt)
   const { start: dayStart, end: dayEnd } = localDayBounds(date)
   const weekday = localWeekday(startAt)
+
+  if (mode === 'parallel') {
+    return bookParallel(c, {
+      db,
+      name,
+      phone,
+      startAt,
+      requestedStaffId,
+      zonedLegs,
+      staff,
+      now,
+      dayStart,
+      dayEnd,
+      weekday,
+    })
+  }
+
+  const required = requiredSkillIds(legs)
 
   // Re-run the SAME combo engine as the pre-write check so the write and the
   // availability response can never disagree; pick the technician (given, or
@@ -429,5 +531,200 @@ routes.post('/api/combo/bookings', async (c) => {
     return c.json(errorBody('SLOT_TAKEN', 'Khung giờ này vừa có người đặt mất'), 409)
   }
 })
+
+// ---------------------------------------------------------------------------
+// Parallel booking (R1b) — MANY items, DIFFERENT technicians, SAME start,
+// written ATOMICALLY so a half-combo (some legs booked, some not) can NEVER
+// happen. This is the deadliest hazard of the whole card: a customer must never
+// walk away thinking they booked N services when only some legs landed.
+// ---------------------------------------------------------------------------
+async function bookParallel(
+  c: Context<{ Bindings: Bindings }>,
+  args: {
+    db: D1Database
+    name: string
+    phone: string
+    startAt: number
+    requestedStaffId: number | null
+    zonedLegs: ZonedComboLeg[]
+    staff: StaffWithSkills[]
+    now: number
+    dayStart: number
+    dayEnd: number
+    weekday: number
+  },
+) {
+  const { db, name, phone, startAt, requestedStaffId, zonedLegs, staff, now, dayStart, dayEnd, weekday } = args
+
+  // staff_id is meaningless for parallel (N distinct techs). Reject, don't ignore.
+  if (requestedStaffId !== null) {
+    return c.json(errorBody('VALIDATION', 'song song không nhận staff_id (mỗi dịch vụ một KTV riêng)'), 422)
+  }
+
+  // Set-level gates first (same as availability): every leg staffable + zones
+  // distinct. A failure here is STAFF_LACKS_SKILL / ZONE_CONFLICT surfaced up
+  // front — but since the UI only reaches the write after a coverable preview,
+  // these are defence-in-depth, not the normal path.
+  const active = staff.filter((s) => s.active)
+  const everyLegHasTech = zonedLegs.every((leg) => active.some((s) => s.skillIds.has(leg.skill_id)))
+  if (!everyLegHasTech) {
+    return c.json(errorBody('STAFF_LACKS_SKILL', 'Có dịch vụ trong combo chưa có kỹ thuật viên làm được'), 409)
+  }
+  if (!parallelZonesDistinct(zonedLegs)) {
+    return c.json(errorBody('ZONE_CONFLICT', 'Hai dịch vụ song song không được cùng vùng cơ thể (không làm cùng lúc được)'), 409)
+  }
+
+  // Load shifts/timeoff/busy for every active tech qualified for ANY leg.
+  const neededSkills = new Set(zonedLegs.map((l) => l.skill_id))
+  const poolIds = active.filter((s) => [...s.skillIds].some((sk) => neededSkills.has(sk))).map((s) => s.id)
+  const ph = placeholders(poolIds.length)
+  const [shiftRes, timeOffRes, busyRes] = await Promise.all([
+    db
+      .prepare(`SELECT staff_id, start_min, end_min FROM work_shifts WHERE weekday = ? AND staff_id IN (${ph})`)
+      .bind(weekday, ...poolIds)
+      .all<Pick<WorkShift, 'staff_id' | 'start_min' | 'end_min'>>(),
+    db
+      .prepare(`SELECT staff_id, start_at, end_at FROM time_off WHERE staff_id IN (${ph}) AND start_at < ? AND end_at > ?`)
+      .bind(...poolIds, dayEnd, dayStart)
+      .all<TimeOffInterval>(),
+    db
+      .prepare(
+        `SELECT staff_id, start_at, block_end_at FROM booking_items
+         WHERE staff_id IN (${ph}) AND status IN ('booked','in_service') AND start_at < ? AND block_end_at > ?`,
+      )
+      .bind(...poolIds, dayEnd, dayStart)
+      .all<BusyItem>(),
+  ])
+
+  // Re-run the SAME engine as the pre-write check → the write can never offer a
+  // start the preview did not, and finds ONE concrete distinct-tech assignment.
+  const slots = computeParallelAvailability({
+    legs: zonedLegs,
+    staff: active,
+    shifts: shiftRes.results,
+    timeOff: timeOffRes.results,
+    busyItems: busyRes.results,
+    dayStart,
+    dayEnd,
+    now,
+  })
+  const slot = slots.find((s) => s.start_at === startAt)
+  if (slot === undefined) {
+    return c.json(errorBody('SLOT_TAKEN', 'Không đủ kỹ thuật viên rảnh cùng lúc cho khung giờ này'), 409)
+  }
+
+  // Lay out: every leg at startAt on its assigned tech.
+  const { items, endAt } = layoutParallel(zonedLegs, startAt, slot.staff_ids)
+
+  const existing = await db
+    .prepare('SELECT id FROM customers WHERE phone = ? ORDER BY id LIMIT 1')
+    .bind(phone)
+    .first<{ id: number }>()
+  const customerId =
+    existing !== null
+      ? existing.id
+      : (await db
+          .prepare('INSERT INTO customers (name, phone) VALUES (?, ?) RETURNING id')
+          .bind(name, phone)
+          .first<{ id: number }>())!.id
+
+  // --- THE ATOMIC WRITE ---------------------------------------------------
+  // Each leg rides its OWN technician over its OWN window. The whole combo is
+  // bookable only if EVERY assigned tech is free for their leg window. We
+  // encode that as a single SQL predicate `allFreeGuard` = the AND, over every
+  // leg, of "that tech has no overlapping booking and no overlapping time-off".
+  // EVERY statement in the batch carries this SAME guard, so the write is
+  // all-or-nothing:
+  //   - appointment insert is gated on allFreeGuard → if ANY leg's tech was
+  //     snatched since the preview, the appointment row is not inserted and
+  //     last_insert_rowid() is unusable;
+  //   - each item insert is ALSO gated on allFreeGuard, so none of them insert
+  //     either. D1 batch is atomic (one implicit transaction) → a half-combo is
+  //     impossible: it is all N legs, or zero.
+  // The guard checks PRE-EXISTING rows only. The combo's own items are on
+  // DIFFERENT techs, so they never collide with each other (distinct zones,
+  // distinct staff) — unlike serial, there is nothing to exclude among siblings.
+  const guardClauses: string[] = []
+  const perLegGuardArgs: number[] = []
+  for (const it of items) {
+    guardClauses.push(`
+      NOT EXISTS (
+        SELECT 1 FROM booking_items bi
+        WHERE bi.staff_id = ? AND bi.status IN ('booked','in_service')
+          AND bi.start_at < ? AND bi.block_end_at > ?
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM time_off t
+        WHERE t.staff_id = ? AND t.start_at < ? AND t.end_at > ?
+      )`)
+    perLegGuardArgs.push(it.staff_id, it.block_end_at, it.start_at, it.staff_id, it.block_end_at, it.start_at)
+  }
+  const allFreeGuard = guardClauses.join(' AND ')
+
+  // ALL items go in ONE multi-row statement, exactly like the serial path, so
+  // that last_insert_rowid() resolves to the APPOINTMENT's id for every row
+  // (statement 1 was the appointment insert). Splitting into one statement per
+  // item would break this: after item 1 inserts, last_insert_rowid() would
+  // return item 1's rowid, not the appointment's. The per-item VALUES carry
+  // each leg's OWN tech, and the whole set is gated on allFreeGuard, so it is
+  // all-N-legs-or-zero — no half-combo.
+  const itemsValues = items.map(() => `(last_insert_rowid(), ?, ?, ?, ?, ?, 'booked')`).join(', ')
+  const itemsBinds: number[] = []
+  for (const it of items) itemsBinds.push(it.staff_id, it.variant_id, it.start_at, it.end_at, it.block_end_at)
+
+  const statements = [
+    db
+      .prepare(
+        `INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
+         SELECT ?, ?, ?, 'booked', 'online', ? WHERE ${allFreeGuard}`,
+      )
+      .bind(customerId, startAt, endAt, now, ...perLegGuardArgs),
+    db
+      .prepare(
+        `INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_at, block_end_at, status)
+         SELECT * FROM (VALUES ${itemsValues}) WHERE ${allFreeGuard}`,
+      )
+      .bind(...itemsBinds, ...perLegGuardArgs),
+  ]
+
+  try {
+    const res = await db.batch(statements)
+    const apptWrote = (res[0]!.meta.changes ?? 0) > 0
+    const itemsWrote = (res[1]!.meta.changes ?? 0) === items.length
+    if (!apptWrote || !itemsWrote) {
+      // NOTE: D1 batch is atomic, so a partial write cannot persist. This branch
+      // means the guard blocked (a leg's tech was snatched) → nothing written.
+      return c.json(errorBody('SLOT_TAKEN', 'Khung giờ này vừa có người đặt mất một phần combo'), 409)
+    }
+
+    const appointmentId = res[0]!.meta.last_row_id
+    const appointment = await db
+      .prepare('SELECT id, customer_id, start_at, end_at, status, source, created_at FROM appointments WHERE id = ?')
+      .bind(appointmentId)
+      .first()
+    const itemRows = await db
+      .prepare(
+        `SELECT id, appointment_id, staff_id, variant_id, start_at, end_at, block_end_at, status
+         FROM booking_items WHERE appointment_id = ? ORDER BY start_at, id`,
+      )
+      .bind(appointmentId)
+      .all<{ staff_id: number }>()
+    // Parallel response: MANY technicians. Return the per-staff roster so the UI
+    // can show "ai làm gì lúc nào". `staff` (singular) is null for parallel.
+    const staffIds = [...new Set(slot.staff_ids)]
+    const staffPh = placeholders(staffIds.length)
+    const staffRows = await db
+      .prepare(`SELECT id, name FROM staff WHERE id IN (${staffPh})`)
+      .bind(...staffIds)
+      .all<Staff>()
+
+    return c.json(
+      { appointment, items: itemRows.results, staff: null, staff_by_id: staffRows.results, mode: 'parallel' },
+      201,
+    )
+  } catch {
+    return c.json(errorBody('SLOT_TAKEN', 'Khung giờ này vừa có người đặt mất một phần combo'), 409)
+  }
+}
 
 export default routes
