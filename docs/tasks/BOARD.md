@@ -45,6 +45,22 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-26 | **R1b** combo song song (nhiều KTV cùng lúc) | review | opus | T-19 |
 | T-27 | **R6** Telegram nội bộ (báo lễ tân) | review | sonnet | — |
 | T-28 | Fix RBAC gap — gate POST /appointments/:id/items | review | sonnet | T-22, T-25 |
+| T-29 | **G1/G2** Tạo lịch trên timeline (click ô trống → prefill) | todo | sonnet | T-22 |
+| T-30 | **G1/G3** Đổi giờ/KTV trên timeline (kéo + nút sheet) | todo | opus | T-22, T-24 |
+| T-31 | **G4** Timeline week view + chọn ngày + "Hôm nay" | todo | sonnet | T-12 |
+| T-32 | **G5** Hiện tên+SĐT+nút gọi trên sheet chi tiết lịch | todo | sonnet | T-12 |
+
+## Nhóm timeline-as-calendar (T-29..T-32)
+
+Sinh từ **audit timeline độc lập bằng con-mắt-không-biết-code** (agent thao tác app
+thật trên browser, không đọc source; kết quả trùng với audit đọc-code). Kết luận:
+timeline là **Calendar/Timeline archetype nhưng vi phạm contract của chính nó** —
+đây là **một** gap cấu trúc `Archetype mismatch` (P1), không phải chùm gap nhỏ rời
+rạc. T-29/T-30/T-31 là ba mặt cụ thể của nó (create / revise / perspective); T-32 là
+Relationship-opacity P2 (SĐT khách vắng mặt trên sheet lịch thường) — thứ chỉ
+con-mắt-thao-tác-thật bắt được. Ba P1 đều **backend rẻ**: walk-in/reschedule/add-item
+endpoint đã có + đã gate RBAC; thiếu là ở surface tương tác trên workspace này.
+Nhớ bài học T-28: gate RBAC ở **route**, ẩn nút UI không đủ.
 
 ## Cổng trước production (T-18, T-19)
 
