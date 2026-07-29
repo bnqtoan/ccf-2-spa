@@ -30,6 +30,11 @@
   // ('admin123', see src/worker/db/seed.ts) and must_change_password=1, so no
   // password secret is needed to bootstrap it.
   // Local dev reads SESSION_SECRET from .dev.vars (gitignored). See docs/DEPLOY.md.
+  //
+  // T-27 TELEGRAM secrets (also `wrangler secret put`, never committed):
+  //   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID — bot nội bộ báo lễ tân/admin khi có
+  //   booking mới hoặc KTV nghỉ. Cả hai đều OPTIONAL: thiếu thì notify NO-OP
+  //   (không lỗi), booking/time-off vẫn chạy bình thường. Xem docs/DEPLOY.md.
   "vars": {
     // PayPal sandbox base by default; set to https://api-m.paypal.com in prod.
     "PAYPAL_BASE_URL": "https://api-m.sandbox.paypal.com",

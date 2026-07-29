@@ -29,3 +29,8 @@ TEST_CLOCK=1
 
 # --- Auth admin (T-19/T-23) — GIÁ TRỊ TEST, đổi ở production qua wrangler secret ---
 SESSION_SECRET=test-session-secret
+
+# --- Telegram nội bộ (T-27) — GIÁ TRỊ TEST, không phải bot thật ---
+# Thiếu cả hai (hoặc để rỗng) → notify NO-OP, không lỗi, app chạy bình thường.
+TELEGRAM_BOT_TOKEN=test-telegram-bot-token
+TELEGRAM_CHAT_ID=test-telegram-chat-id

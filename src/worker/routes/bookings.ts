@@ -33,8 +33,9 @@ import type { Interval } from '../lib/intervals.ts'
 import { localDayBounds, localParts, minutesToEpoch } from '../lib/time.ts'
 import { blockEndAt, endAt, validateBooking } from '../lib/validate-booking.ts'
 import { serverNow } from '../lib/clock.ts'
+import { bookingMessage, sendTelegram, type NotifyEnv } from '../lib/notify.ts'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database } & NotifyEnv
 
 const routes = new Hono<{ Bindings: Bindings }>()
 
@@ -208,6 +209,28 @@ routes.post('/api/bookings', async (c) => {
     .prepare('SELECT id, name FROM staff WHERE id = ?')
     .bind(staffId)
     .first<{ id: number; name: string }>()
+
+  // T-27: báo lễ tân/admin ngay khi có booking mới (online). Fire-and-forget
+  // qua waitUntil — KHÔNG chặn response, và notify không bao giờ được làm
+  // hỏng nghiệp vụ (booking đã ghi DB thành công phía trên, bất kể chuyện gì
+  // xảy ra bên dưới). try/catch nuốt lỗi là lớp phòng thủ thứ hai; sendTelegram
+  // tự nó cũng không throw.
+  try {
+    const p = localParts(startAt)
+    c.executionCtx.waitUntil(
+      sendTelegram(
+        c.env,
+        bookingMessage({
+          customerName: name,
+          variantName: variant.variant_name,
+          time: { hour: p.hour, minute: p.minute, day: p.day, month: p.month },
+          staffName: staffRow?.name ?? `#${staffId}`,
+        }),
+      ).catch(() => undefined),
+    )
+  } catch {
+    // notify không bao giờ được làm hỏng response — nuốt mọi lỗi ở đây.
+  }
 
   return c.json({ appointment: written.appointment, item: written.item, staff: staffRow }, 201)
 })

@@ -32,8 +32,9 @@ import { overlaps } from '../lib/intervals.ts'
 import { localDayBounds, localParts, minutesToEpoch } from '../lib/time.ts'
 import { blockEndAt, endAt, validateBooking } from '../lib/validate-booking.ts'
 import { serverNow } from '../lib/clock.ts'
+import { bookingMessage, sendTelegram, type NotifyEnv } from '../lib/notify.ts'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database } & NotifyEnv
 
 const routes = new Hono<{ Bindings: Bindings }>()
 
@@ -214,6 +215,26 @@ routes.post('/api/admin/walk-ins', async (c) => {
     .prepare('SELECT id, name, phone FROM customers WHERE id = ?')
     .bind(customerId)
     .first<{ id: number; name: string; phone: string | null }>()
+
+  // T-27: báo lễ tân/admin ngay khi có walk-in mới. Cùng nguyên tắc như booking
+  // online (bookings.ts) — waitUntil + try/catch nuốt lỗi, notify không bao giờ
+  // được làm hỏng nghiệp vụ đã ghi DB thành công phía trên.
+  try {
+    const p = localParts(now)
+    c.executionCtx.waitUntil(
+      sendTelegram(
+        c.env,
+        bookingMessage({
+          customerName: customerRow?.name ?? name,
+          variantName: variant.variant_name,
+          time: { hour: p.hour, minute: p.minute, day: p.day, month: p.month },
+          staffName: staffRow?.name ?? `#${staffId}`,
+        }),
+      ).catch(() => undefined),
+    )
+  } catch {
+    // notify không bao giờ được làm hỏng response — nuốt mọi lỗi ở đây.
+  }
 
   return c.json(
     { appointment: written.appointment, item: written.item, staff: staffRow, customer: customerRow },

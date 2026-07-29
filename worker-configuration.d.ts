@@ -23,6 +23,10 @@ interface __BaseEnv_Env {
 	// lib/clock.ts). Production KHÔNG BAO GIỜ set → server dùng đồng hồ thật.
 	TEST_NOW_SEC?: string;
 	TEST_CLOCK?: string;
+	// T-27 Telegram nội bộ — set as secrets via `wrangler secret put`. Optional:
+	// notify NO-OP (không lỗi) khi thiếu, booking/time-off vẫn chạy bình thường.
+	TELEGRAM_BOT_TOKEN?: string;
+	TELEGRAM_CHAT_ID?: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
