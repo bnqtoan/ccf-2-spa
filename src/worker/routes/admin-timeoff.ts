@@ -22,8 +22,10 @@ import {
   staffExists,
 } from '../db/timeoff.ts'
 import type { AuthUser } from '../lib/auth.ts'
+import { localParts } from '../lib/time.ts'
+import { sendTelegram, timeOffMessage, type NotifyEnv } from '../lib/notify.ts'
 
-type Bindings = { DB: D1Database }
+type Bindings = { DB: D1Database } & NotifyEnv
 type Variables = { user: AuthUser }
 
 const routes = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -89,6 +91,28 @@ routes.post('/api/admin/time-off', async (c) => {
   // the query reads booking_items, which the insert did not touch. Nothing is
   // cancelled or moved here — that is the point.
   const affected = await findAffectedItems(db, staffId, startAt, endAt)
+
+  // T-27: báo lễ tân/admin ngay khi có time-off mới, kèm số lịch bị ảnh hưởng.
+  // Cùng nguyên tắc waitUntil + try/catch nuốt lỗi — record time-off KHÔNG
+  // ĐƯỢC PHÉP fail vì Telegram (đây chính là dòng "never fails" ở đầu file).
+  try {
+    const staffRow = await db.prepare('SELECT name FROM staff WHERE id = ?').bind(staffId).first<{ name: string }>()
+    const pStart = localParts(startAt)
+    const pEnd = localParts(endAt)
+    c.executionCtx.waitUntil(
+      sendTelegram(
+        c.env,
+        timeOffMessage({
+          staffName: staffRow?.name ?? `#${staffId}`,
+          start: { hour: pStart.hour, minute: pStart.minute, day: pStart.day, month: pStart.month },
+          end: { hour: pEnd.hour, minute: pEnd.minute, day: pEnd.day, month: pEnd.month },
+          affectedCount: affected.length,
+        }),
+      ).catch(() => undefined),
+    )
+  } catch {
+    // notify không bao giờ được làm hỏng response — nuốt mọi lỗi ở đây.
+  }
 
   // 200, not 201: the card fixes this shape (PRD §8). The conflicts are the
   // headline, not the new row.

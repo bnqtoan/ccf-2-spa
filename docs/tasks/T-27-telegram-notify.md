@@ -1,7 +1,7 @@
 ---
 id: T-27
 title: R6 — Thông báo Telegram nội bộ (báo lễ tân)
-status: todo
+status: review
 model: sonnet
 effort: medium
 depends_on: []
@@ -69,8 +69,8 @@ lại. Giảm việc lễ tân phải ngồi refresh timeline.
 - Secret KHÔNG hardcode; .dev.vars test giá trị giả.
 
 ## Checklist đầu ra
-- [ ] typecheck · npm test · e2e --workers=1 xanh
-- [ ] status review + "Đã làm gì"
+- [x] typecheck · npm test · e2e --workers=1 xanh
+- [x] status review + "Đã làm gì"
 
 ## Test phải viết
 - `notify gửi đúng nội dung khi booking mới (mock fetch, assert body message)`
@@ -90,4 +90,41 @@ hình hoặc lỗi, nghiệp vụ vẫn chạy bình thường (notify không ba
 - chat_id/token là secret — .dev.vars gitignore, không commit giá trị thật.
 
 ## Đã làm gì
-(agent điền khi xong)
+- `src/worker/lib/notify.ts` (mới): `sendTelegram(env, text, fetchImpl?)` — gọi
+  Telegram Bot API `sendMessage`. NO-OP (`{ok:false, reason:'not_configured'}`,
+  không gọi fetch) khi thiếu `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`. Không bao
+  giờ throw: HTTP non-2xx → `{ok:false, reason:'http_error'}`, fetch reject →
+  `{ok:false, reason:'network_error'}`. `fetchImpl` injectable cho test (giống
+  pattern `payments/*.ts`). Kèm `bookingMessage()` / `timeOffMessage()` build
+  nội dung tiếng Việt.
+- Hook 3 điểm, tất cả qua `c.executionCtx.waitUntil(...)` + `try/catch` nuốt
+  lỗi bọc ngoài (2 lớp phòng thủ — bản thân `sendTelegram` cũng không throw):
+  - `src/worker/routes/bookings.ts` — sau khi ghi booking online 201.
+  - `src/worker/routes/admin-walkin.ts` — sau khi ghi walk-in 201.
+  - `src/worker/routes/admin-timeoff.ts` — sau `POST /api/admin/time-off`,
+    kèm số `affected_items` trong nội dung tin.
+- `wrangler.jsonc`, `worker-configuration.d.ts`, `.dev.vars.example`,
+  `docs/DEPLOY.md` — khai báo `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` (secret,
+  optional), hướng dẫn tạo bot qua @BotFather + lấy chat_id qua `getUpdates`.
+- `tests/api/notify.test.ts` (mới, 17 test): unit thuần `sendTelegram` (nội
+  dung đúng, no-op thiếu token/chat_id, HTTP 500 → ok:false, fetch reject →
+  ok:false, không throw ở mọi case) + API thật qua `exports.default.fetch()`
+  với `vi.stubGlobal('fetch', ...)` mock — xác nhận booking/walk-in/time-off
+  vẫn 201/200 dù Telegram lỗi 500 hoặc thiếu secret, và nội dung tin gửi đúng
+  (khách, dịch vụ, giờ, KTV / số lịch cần xếp lại).
+- Kỹ thuật test: `env.TELEGRAM_*` (từ `cloudflare:workers`) là binding có thể
+  set/xoá RUNTIME trong từng test để mô phỏng "đã cấu hình"/"chưa cấu hình" mà
+  không cần sửa `vitest.config.ts` (nếu đặt cố định ở đó thì case "thiếu
+  secret" không tái tạo được). `waitUntil` xác nhận có settle trước khi test
+  đọc side-effect: `exports.default.fetch()` của `@cloudflare/vitest-pool-
+  workers` chạy qua service-binding RPC, thực nghiệm cho thấy cần một
+  `await new Promise(r => setTimeout(r, 20))` (helper `flush()`) sau response
+  để chắc chắn promise trong `waitUntil` đã chạy xong trước khi assert.
+- GATE 2: `npm run typecheck` sạch · `npm test` 395/395 pass (chạy 2 lần liên
+  tiếp, ổn định) · `npx playwright test --workers=1` 86 passed / 1 skipped
+  (skip có sẵn từ trước, không liên quan T-27) / 0 failed.
+- Phát hiện phụ: D1 local của worktree chưa `db:migrate:local`/`db:seed:local`
+  (bước setup orchestrator giao) — đã tự chạy trước khi e2e.
+- Secrets cần set production: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (cả hai
+  optional — thiếu thì notify NO-OP, app chạy bình thường). Hướng dẫn lấy giá
+  trị ở `docs/DEPLOY.md` mục 4a.

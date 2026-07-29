@@ -58,6 +58,34 @@ giá trị này công khai ngay trong tài liệu này) và cờ `must_change_pa
 đăng nhập lần đầu bị **bắt đổi mật khẩu ngay** trước khi vào được khu quản lý, để
 mặc định đó không tồn tại lâu trên production.
 
+### 4a. Set secret Telegram nội bộ (T-27) — TUỲ CHỌN
+
+Bot Telegram báo lễ tân/admin ngay khi có booking mới hoặc KTV báo nghỉ. Kênh
+nội bộ, KHÔNG gửi khách. Hoàn toàn tuỳ chọn — chưa cấu hình thì notify NO-OP
+im lặng, mọi nghiệp vụ (booking, walk-in, time-off) vẫn chạy bình thường.
+
+**Tạo bot + lấy token:**
+1. Trong Telegram, chat với [@BotFather](https://t.me/BotFather) → `/newbot` →
+   đặt tên → BotFather trả về một token dạng `123456789:ABC-...`.
+2. Đó là `TELEGRAM_BOT_TOKEN`.
+
+**Lấy chat_id (nhóm lễ tân/admin):**
+1. Tạo một nhóm Telegram (hoặc dùng chat riêng), thêm bot vừa tạo vào nhóm.
+2. Gửi một tin bất kỳ vào nhóm, rồi mở:
+   `https://api.telegram.org/bot<TOKEN>/getUpdates`
+3. Tìm trường `"chat":{"id": -100...}` trong JSON trả về — đó là `TELEGRAM_CHAT_ID`
+   (số âm nếu là nhóm/supergroup).
+
+**Set secret:**
+
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID
+```
+
+Thiếu MỘT trong hai secret này → notify tự động NO-OP (không lỗi, không log ồn
+ào). Local dev đọc từ `.dev.vars` (xem `.dev.vars.example`).
+
 ### 4b. Tạo tài khoản owner gốc trên production
 
 `npm run db:seed:local` là seed DEV (tạo cả 3 user demo, mật khẩu `admin123` — CHỈ
