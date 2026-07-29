@@ -23,15 +23,21 @@ const TABLES_IN_DELETE_ORDER = [
   'skills',
 ] as const
 
+// T-23 — mật khẩu mặc định CỐ ĐỊNH cho seed (ADMIN_PASSWORD env đã BỎ HẲN).
+// 'admin123' là giá trị công khai trong tài liệu bàn giao (docs/DEPLOY.md), KHÔNG
+// phải secret — vì vậy owner gốc bị BẮT đổi mật khẩu ngay lần đăng nhập đầu tiên
+// (must_change_password=1, xem migration 0005). reception/ktv là user DEV/E2E
+// nội bộ (không phải luồng bàn giao thật) → must_change=0, giữ e2e đơn giản.
+export const DEFAULT_PW = 'admin123'
+
 // T-22 — user seed. 3 role để dev/e2e đăng nhập kiểm phạm vi:
-//   owner        (mật khẩu = ADMIN_PASSWORD)  — toàn quyền.
-//   receptionist (mật khẩu = ADMIN_PASSWORD)  — vận hành, không tiền/giá.
-//   technician   (mật khẩu = ADMIN_PASSWORD, link staff 'Lan') — chỉ của mình.
-// Mật khẩu dùng CHUNG ADMIN_PASSWORD cho tiện dev; owner đổi/đặt lại qua UI.
+//   owner        (mật khẩu = DEFAULT_PW, must_change_password=1) — toàn quyền.
+//   receptionist (mật khẩu = DEFAULT_PW, must_change_password=0) — vận hành, không tiền/giá.
+//   technician   (mật khẩu = DEFAULT_PW, must_change_password=0, link staff 'Lan') — chỉ của mình.
 export const SEED_USERS = [
-  { username: 'owner', role: 'owner', staffName: null },
-  { username: 'reception', role: 'receptionist', staffName: null },
-  { username: 'ktv', role: 'technician', staffName: 'Lan' },
+  { username: 'owner', role: 'owner', staffName: null, mustChangePassword: true },
+  { username: 'reception', role: 'receptionist', staffName: null, mustChangePassword: false },
+  { username: 'ktv', role: 'technician', staffName: 'Lan', mustChangePassword: false },
 ] as const
 
 export interface SeedStatement {
@@ -259,37 +265,41 @@ export function buildSeedStatements(): SeedStatement[] {
   return stmts
 }
 
-export async function seed(db: D1Database, adminPassword?: string): Promise<void> {
+// T-23 — tham số `adminPassword` đã BỎ (ADMIN_PASSWORD env không còn tồn tại).
+// seed() LUÔN seed đủ 3 user với DEFAULT_PW cố định.
+export async function seed(db: D1Database): Promise<void> {
   for (const { sql, params } of buildSeedStatements()) {
     await db
       .prepare(sql)
       .bind(...params)
       .run()
   }
-  if (adminPassword !== undefined && adminPassword !== '') {
-    await seedUsers(db, adminPassword)
-  }
+  await seedUsers(db)
 }
 
 /**
  * T-22 — chèn 3 user seed (owner/reception/ktv). Tách khỏi buildSeedStatements
  * vì password_hash là PBKDF2 (async, cần crypto.subtle) — không nhét literal
  * vào SQL đồng bộ được. `users` đã bị DELETE ở đầu buildSeedStatements (idempotent).
+ *
+ * T-23 — mật khẩu mặc định CỐ ĐỊNH (DEFAULT_PW='admin123', ADMIN_PASSWORD env đã
+ * bỏ). owner seed với must_change_password=1 (bắt đổi lần đầu); reception/ktv
+ * (user DEV/E2E nội bộ) =0.
  */
-export async function seedUsers(db: D1Database, adminPassword: string): Promise<void> {
+export async function seedUsers(db: D1Database): Promise<void> {
   const { hashPassword } = await import('../lib/auth.ts')
   const now = Math.floor(Date.now() / 1000)
   for (const u of SEED_USERS) {
-    const hash = await hashPassword(adminPassword)
+    const hash = await hashPassword(DEFAULT_PW)
     await db
       .prepare(
-        `INSERT INTO users (username, password_hash, role, staff_id, active, created_at)
-         VALUES (?, ?, ?, ${u.staffName === null ? 'NULL' : '(SELECT id FROM staff WHERE name = ?)'}, 1, ?)`,
+        `INSERT INTO users (username, password_hash, role, staff_id, active, created_at, must_change_password)
+         VALUES (?, ?, ?, ${u.staffName === null ? 'NULL' : '(SELECT id FROM staff WHERE name = ?)'}, 1, ?, ?)`,
       )
       .bind(
         ...(u.staffName === null
-          ? [u.username, hash, u.role, now]
-          : [u.username, hash, u.role, u.staffName, now]),
+          ? [u.username, hash, u.role, now, u.mustChangePassword ? 1 : 0]
+          : [u.username, hash, u.role, u.staffName, now, u.mustChangePassword ? 1 : 0]),
       )
       .run()
   }
@@ -323,32 +333,18 @@ if (import.meta.main) {
     })
     .join('\n')
 
-  // T-22 — user seed. ADMIN_PASSWORD từ .dev.vars (đọc thủ công; CLI không nạp
-  // .dev.vars như `wrangler dev`). PBKDF2 hash tính bằng chính hashPassword —
-  // crypto.subtle có global trong Node 20+.
-  const { readFileSync } = await import('node:fs')
-  function readDevVar(name: string): string | undefined {
-    try {
-      const text = readFileSync(new URL('../../../.dev.vars', import.meta.url), 'utf8')
-      for (const line of text.split('\n')) {
-        const m = /^([A-Z_]+)=(.*)$/.exec(line.trim())
-        if (m && m[1] === name) return m[2]
-      }
-    } catch {
-      /* .dev.vars vắng → dùng mặc định dưới */
-    }
-    return undefined
-  }
-  const adminPassword = readDevVar('ADMIN_PASSWORD') ?? 'dev-admin-password'
+  // T-23 — mật khẩu mặc định CỐ ĐỊNH (DEFAULT_PW='admin123'). ADMIN_PASSWORD env
+  // đã BỎ HẲN — CLI không còn đọc .dev.vars cho user seed. PBKDF2 hash tính bằng
+  // chính hashPassword — crypto.subtle có global trong Node 20+.
   const { hashPassword } = await import('../lib/auth.ts')
 
   let usersSql = ''
   const nowSec = Math.floor(Date.now() / 1000)
   for (const u of SEED_USERS) {
-    const hash = await hashPassword(adminPassword)
+    const hash = await hashPassword(DEFAULT_PW)
     const staffExpr =
       u.staffName === null ? 'NULL' : `(SELECT id FROM staff WHERE name = ${sqlLiteral(u.staffName)})`
-    usersSql += `INSERT INTO users (username, password_hash, role, staff_id, active, created_at) VALUES (${sqlLiteral(u.username)}, ${sqlLiteral(hash)}, ${sqlLiteral(u.role)}, ${staffExpr}, 1, ${nowSec});\n`
+    usersSql += `INSERT INTO users (username, password_hash, role, staff_id, active, created_at, must_change_password) VALUES (${sqlLiteral(u.username)}, ${sqlLiteral(hash)}, ${sqlLiteral(u.role)}, ${staffExpr}, 1, ${nowSec}, ${u.mustChangePassword ? 1 : 0});\n`
   }
 
   const sqlText = baseSql + '\n' + usersSql

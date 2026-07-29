@@ -14,10 +14,10 @@ interface __BaseEnv_Env {
 	PAYPAL_BASE_URL?: string;
 	PAYPAL_VND_PER_USD?: string;
 	PAYPAL_WEBHOOK_ID?: string;
-	// T-19 auth — set as secrets via `wrangler secret put`. Optional so the
-	// Worker still builds before they are configured; auth fails closed (rejects
-	// every login / every admin request) when they are missing.
-	ADMIN_PASSWORD?: string;
+	// T-19 auth — set as a secret via `wrangler secret put`. Optional so the
+	// Worker still builds before it is configured; auth fails closed (rejects
+	// every login / every admin request) when missing. T-23: ADMIN_PASSWORD
+	// removed — login only ever checks the `users` table hash.
 	SESSION_SECRET?: string;
 	// T-21: chỉ set trong TEST để cố định "now" của server (serverNow() trong
 	// lib/clock.ts). Production KHÔNG BAO GIỜ set → server dùng đồng hồ thật.

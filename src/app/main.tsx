@@ -11,6 +11,7 @@ import SetupPage from './routes/admin/setup/SetupPage'
 import OverviewPage from './routes/admin/overview/OverviewPage'
 import UsersPage from './routes/admin/users/UsersPage'
 import LoginPage from './routes/admin/auth/LoginPage'
+import ChangePasswordPage from './routes/admin/auth/ChangePasswordPage'
 import RequireAuth from './routes/admin/auth/RequireAuth'
 import './styles/tokens.css'
 
@@ -27,6 +28,9 @@ createRoot(root).render(
         <Route path="/login" element={<LoginPage />} />
         {/* T-19 — guard đăng nhập; T-22 — guard THEO ROLE (allow=…). Server vẫn
             là gate thật; đây là defense-in-depth để role sai không xem nhầm. */}
+        {/* T-23 — bất kỳ role đã đăng nhập (kể cả mustChangePassword=true, RequireAuth
+            có ngoại lệ cho đúng path này để không tạo vòng lặp redirect). */}
+        <Route path="/admin/change-password" element={<RequireAuth><ChangePasswordPage /></RequireAuth>} />
         <Route path="/admin" element={<RequireAuth allow={['owner', 'receptionist']}><AdminPage /></RequireAuth>} />
         <Route path="/admin/overview" element={<RequireAuth allow={['owner']}><OverviewPage /></RequireAuth>} />
         <Route path="/admin/timeline" element={<RequireAuth allow={['owner', 'receptionist', 'technician']}><TimelinePage /></RequireAuth>} />

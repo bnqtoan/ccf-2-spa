@@ -3,27 +3,35 @@
 // sửa từng file. Bật auth mà giữ 40 spec admin xanh — đây là cách chuẩn
 // Playwright, không nới/không bỏ test nào.
 //
-// Mật khẩu local đến từ .dev.vars (ADMIN_PASSWORD=dev-admin-password) mà
-// `npm run dev` nạp. Cookie do server ký (SESSION_SECRET) — ta không tự chế.
-//
-// T-22: login nay là username+password. Seed tạo user 'owner' (role=owner,
-// mật khẩu = ADMIN_PASSWORD). owner thấy MỌI thứ → 40 spec admin cũ giữ nguyên.
+// T-23: ADMIN_PASSWORD (env) đã BỎ HẲN. Mật khẩu seed owner giờ là hằng số CỐ
+// ĐỊNH 'admin123' (src/worker/db/seed.ts DEFAULT_PW), kèm must_change_password=1
+// — guard SPA (RequireAuth) chặn CỨNG mọi trang admin khi cờ này còn 1. Vì
+// storageState này dùng cho 40 spec admin cũ (không phải luồng đổi mật khẩu),
+// ta tự đổi mật khẩu trước khi lưu — dùng chung helper idempotent với
+// admin-auth.spec.ts/rbac.spec.ts vì project này KHÔNG được đảm bảo chạy trước
+// hai project đó (không có `dependencies` giữa chúng, xem playwright.config.ts).
 
 import { test as setup, expect } from '@playwright/test'
+import { OWNER_USERNAME, loginOwnerPastMustChange } from './_authHelpers'
 
-const ADMIN_USERNAME = 'owner' // seed user gốc (role owner)
-const ADMIN_PASSWORD = 'dev-admin-password' // khớp .dev.vars local
 export const ADMIN_STATE = 'tests/e2e/.auth/admin.json'
 
-setup('đăng nhập admin và lưu phiên', async ({ page }) => {
-  const res = await page.request.post('/api/auth/login', {
-    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
-  })
-  expect(res.status(), 'login local phải 200 (kiểm .dev.vars ADMIN_PASSWORD + seed user owner)').toBe(200)
+setup('đăng nhập admin (qua must-change-password nếu cần), lưu phiên', async ({ page }) => {
+  const password = await loginOwnerPastMustChange(page.request)
 
-  // Xác nhận phiên thật sự dùng được trước khi lưu.
+  // loginOwnerPastMustChange để lại cookie phiên CŨ (trước đổi) trên context
+  // nếu nó tự đổi mật khẩu — POST /api/auth/change-password phát cookie MỚI qua
+  // Set-Cookie nên context page đã có sẵn phiên đúng. Đăng nhập lại một lần nữa
+  // tường minh với mật khẩu cuối cùng để chắc chắn cookie khớp 100% (rẻ, rõ ý).
+  const res = await page.request.post('/api/auth/login', { data: { username: OWNER_USERNAME, password } })
+  expect(res.status(), 'login lần cuối (mật khẩu đã qua must-change) phải 200').toBe(200)
+
+  // Xác nhận phiên thật sự dùng được (và must_change_password đã về false)
+  // trước khi lưu.
   const check = await page.request.get('/api/auth/session')
-  expect((await check.json()).authenticated).toBe(true)
+  const session = (await check.json()) as { authenticated: boolean; must_change_password?: boolean }
+  expect(session.authenticated).toBe(true)
+  expect(session.must_change_password).toBe(false)
 
   await page.context().storageState({ path: ADMIN_STATE })
 })

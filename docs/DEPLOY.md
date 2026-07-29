@@ -40,39 +40,41 @@ lên remote, nhưng không khuyến khích cho production thật.)
 ### 4. Set secret auth admin (T-19/T-22) — BẮT BUỘC trước khi lên production
 
 Khu quản lý (`/admin/*` và mọi `/api/admin/*`) nằm sau đăng nhập, phân quyền theo
-vai trò (T-22: owner / receptionist / technician). Hai secret phải set qua
+vai trò (T-22: owner / receptionist / technician). Một secret phải set qua
 `wrangler secret put` (KHÔNG commit, KHÔNG để trong `wrangler.jsonc`):
 
 ```bash
 npx wrangler secret put SESSION_SECRET   # khoá HMAC ký cookie phiên (chuỗi ngẫu nhiên dài)
-npx wrangler secret put ADMIN_PASSWORD   # mật khẩu owner GỐC lần đầu (xem dưới)
 ```
 
 `SESSION_SECRET` nên là chuỗi ngẫu nhiên ≥ 32 ký tự (ví dụ `openssl rand -hex 32`).
 Chưa set → auth fail-closed: mọi lần đăng nhập bị từ chối (khách vẫn đặt lịch +
 trả tiền bình thường vì các route đó public). Local dev đọc từ `.dev.vars`.
 
-**Về `ADMIN_PASSWORD` — đọc kỹ, dễ hiểu lầm:** mật khẩu thật của MỌI user nằm
-trong bảng `users` dạng hash PBKDF2. Login tra bảng đó, KHÔNG so với
-`ADMIN_PASSWORD`. `ADMIN_PASSWORD` chỉ dùng MỘT LẦN: làm mật khẩu ban đầu cho
-**tài khoản owner gốc** khi bạn tạo nó. Sau đó owner đổi mật khẩu qua UI quản lý
-user, và `ADMIN_PASSWORD` thành vô nghĩa (có thể xoá secret).
+**T-23 — ADMIN_PASSWORD đã BỎ HẲN.** Mật khẩu thật của MỌI user nằm trong bảng
+`users` dạng hash PBKDF2; login tra bảng đó, không so với biến môi trường nào.
+Owner gốc seed với mật khẩu **mặc định cố định `admin123`** (không phải secret —
+giá trị này công khai ngay trong tài liệu này) và cờ `must_change_password=1`:
+đăng nhập lần đầu bị **bắt đổi mật khẩu ngay** trước khi vào được khu quản lý, để
+mặc định đó không tồn tại lâu trên production.
 
 ### 4b. Tạo tài khoản owner gốc trên production
 
-`npm run db:seed:local` là seed DEV (tạo cả 3 user demo chung một mật khẩu — CHỈ
+`npm run db:seed:local` là seed DEV (tạo cả 3 user demo, mật khẩu `admin123` — CHỈ
 cho máy local, ĐỪNG chạy trên production). Trên production, tạo **một** owner gốc
 rồi tự thêm nhân viên qua UI:
 
 ```bash
-# Tạo owner gốc: username 'owner', mật khẩu = ADMIN_PASSWORD (hash PBKDF2).
-# (Viết một script nhỏ gọi hashPassword() từ src/worker/db/seed.ts rồi
-#  INSERT INTO users, hoặc thêm 1 route seed-owner chạy một lần.)
+# Tạo owner gốc: username 'owner', mật khẩu 'admin123' (hash PBKDF2),
+# must_change_password=1. (Viết một script nhỏ gọi hashPassword() từ
+# src/worker/db/seed.ts rồi INSERT INTO users, hoặc thêm 1 route seed-owner
+# chạy một lần.)
 ```
 
-Sau khi đăng nhập owner lần đầu → **đổi ngay mật khẩu** qua Thiết lập → Quản lý
-user, rồi thêm receptionist/technician (mỗi người mật khẩu riêng). Không dùng lại
-một mật khẩu chung cho nhiều tài khoản trên production.
+Đăng nhập `owner` / `admin123` lần đầu sẽ **tự động bị bắt đổi mật khẩu** trước
+khi vào được khu quản lý (không cần thao tác thủ công qua UI Quản lý user). Đổi
+xong rồi mới thêm receptionist/technician (mỗi người mật khẩu riêng). Không dùng
+lại `admin123` cho tài khoản nào khác trên production.
 
 ## Nối repo (trong dashboard Cloudflare)
 

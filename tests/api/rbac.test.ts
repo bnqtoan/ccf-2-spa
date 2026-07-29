@@ -17,6 +17,7 @@ import migration0001 from '../../migrations/0001_init.sql?raw'
 import migration0002 from '../../migrations/0002_commission_tax.sql?raw'
 import migration0003 from '../../migrations/0003_payments.sql?raw'
 import migration0004 from '../../migrations/0004_users.sql?raw'
+import migration0005 from '../../migrations/0005_must_change_password.sql?raw'
 import { seed } from '../../src/worker/db/seed.ts'
 import { SESSION_COOKIE, hashPassword, issueSessionToken, type AuthUser } from '../../src/worker/lib/auth.ts'
 
@@ -54,7 +55,7 @@ let KTV_LAN: AuthUser // technician link staff Lan
 let KTV_MAI: AuthUser // technician link staff Mai (để test "đụng của người khác")
 
 beforeAll(async () => {
-  for (const m of [migration0001, migration0002, migration0003, migration0004]) {
+  for (const m of [migration0001, migration0002, migration0003, migration0004, migration0005]) {
     for (const stmt of splitStatements(m)) await db.prepare(stmt).run()
   }
 })

@@ -4,16 +4,17 @@
 //   - route khách + webhook payment KHÔNG bị guard admin chặn (vẫn public)
 //   - login sai mật khẩu → 401; login đúng → nhận cookie phiên dùng được
 //
-// Env test (ADMIN_PASSWORD='test-admin-pw', SESSION_SECRET='test-session-secret')
-// đến từ miniflare.bindings trong vitest.config.ts — cùng pattern payment secrets.
-// Token hợp lệ được ký bằng CHÍNH lib thuần (issueSessionToken) với đúng secret
-// đó, rồi gắn vào header Cookie.
+// T-23 — ADMIN_PASSWORD đã BỎ HẲN. Env test chỉ còn SESSION_SECRET=
+// 'test-session-secret' (miniflare.bindings trong vitest.config.ts, cùng pattern
+// payment secrets). Token hợp lệ được ký bằng CHÍNH lib thuần (issueSessionToken)
+// với đúng secret đó, rồi gắn vào header Cookie.
 
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, describe, expect, it } from 'vitest'
 import migration0001 from '../../migrations/0001_init.sql?raw'
 import migration0003 from '../../migrations/0003_payments.sql?raw'
 import migration0004 from '../../migrations/0004_users.sql?raw'
+import migration0005 from '../../migrations/0005_must_change_password.sql?raw'
 import { SESSION_COOKIE, hashPassword, issueSessionToken } from '../../src/worker/lib/auth.ts'
 
 const db = env.DB
@@ -36,12 +37,17 @@ beforeAll(async () => {
   for (const stmt of splitStatements(migration0001)) await db.prepare(stmt).run()
   for (const stmt of splitStatements(migration0003)) await db.prepare(stmt).run()
   for (const stmt of splitStatements(migration0004)) await db.prepare(stmt).run()
-  // T-22 — login nay là username+password tra bảng users. Seed 1 owner với mật
-  // khẩu = ADMIN_PASSWORD test ('test-admin-pw', khớp vitest.config.ts).
+  for (const stmt of splitStatements(migration0005)) await db.prepare(stmt).run()
+  // T-22/T-23 — login nay là username+password tra bảng users. Seed 1 owner với
+  // mật khẩu = 'admin123' (khớp DEFAULT_PW seed.ts), must_change_password=0 —
+  // các test dưới đây kiểm guard/login/session, KHÔNG kiểm luồng đổi mật khẩu
+  // (test riêng ở "POST /api/auth/change-password" bên dưới sẽ tự set =1 khi cần).
   await db.prepare('DELETE FROM users').run()
-  const hash = await hashPassword('test-admin-pw')
+  const hash = await hashPassword('admin123')
   await db
-    .prepare("INSERT INTO users (username, password_hash, role, staff_id, active, created_at) VALUES ('owner', ?, 'owner', NULL, 1, 0)")
+    .prepare(
+      "INSERT INTO users (username, password_hash, role, staff_id, active, created_at, must_change_password) VALUES ('owner', ?, 'owner', NULL, 1, 0, 0)",
+    )
     .bind(hash)
     .run()
 })
@@ -185,9 +191,12 @@ describe('POST /api/auth/login + logout', () => {
     const login = await exports.default.fetch(`${BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ username: 'owner', password: 'test-admin-pw' }),
+      body: JSON.stringify({ username: 'owner', password: 'admin123' }),
     })
     expect(login.status).toBe(200)
+    const loginBody = (await login.json()) as { ok: boolean; role: string; must_change_password: boolean }
+    // Seed test dùng must_change_password=0 (không kiểm luồng đổi mật khẩu ở đây).
+    expect(loginBody.must_change_password).toBe(false)
     const setCookie = login.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain(SESSION_COOKIE)
     expect(setCookie.toLowerCase()).toContain('httponly')
@@ -213,6 +222,140 @@ describe('POST /api/auth/login + logout', () => {
     expect(res.status).toBe(200)
     const setCookie = login2SetCookie(res)
     expect(setCookie).toContain(SESSION_COOKIE)
+  })
+})
+
+// T-23 — ADMIN_PASSWORD (env) BỎ HẲN. Owner gốc seed với mật khẩu MẶC ĐỊNH cố
+// định 'admin123' + must_change_password=1 — bắt đổi mật khẩu lần đầu trước khi
+// dùng khu quản lý. Test riêng (không đụng seed owner ở beforeAll — dùng user
+// 'owner_mcp' riêng cho nhóm này để không ảnh hưởng các test login/guard khác).
+describe('T-23 — must_change_password + POST /api/auth/change-password', () => {
+  async function seedMustChangeUser(): Promise<void> {
+    await db.prepare("DELETE FROM users WHERE username = 'owner_mcp'").run()
+    const hash = await hashPassword('admin123')
+    await db
+      .prepare(
+        "INSERT INTO users (username, password_hash, role, staff_id, active, created_at, must_change_password) VALUES ('owner_mcp', ?, 'owner', NULL, 1, 0, 1)",
+      )
+      .bind(hash)
+      .run()
+  }
+
+  it('login owner_mcp/admin123 lần đầu → must_change_password=1 trong response', async () => {
+    await seedMustChangeUser()
+    const res = await exports.default.fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'owner_mcp', password: 'admin123' }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: boolean; role: string; must_change_password: boolean }
+    expect(body.must_change_password).toBe(true)
+  })
+
+  it('GET /api/auth/session sau login chưa đổi mật khẩu → must_change_password=1', async () => {
+    await seedMustChangeUser()
+    const login = await exports.default.fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'owner_mcp', password: 'admin123' }),
+    })
+    const setCookie = login.headers.get('set-cookie') ?? ''
+    const m = setCookie.match(new RegExp(`${SESSION_COOKIE}=([^;]+)`))
+    expect(m).not.toBeNull()
+    const res = await get('/api/auth/session', `${SESSION_COOKIE}=${m![1]}`)
+    const body = (await res.json()) as { authenticated: boolean; must_change_password?: boolean }
+    expect(body.authenticated).toBe(true)
+    expect(body.must_change_password).toBe(true)
+  })
+
+  it('change-password mật khẩu HIỆN TẠI sai → 401, must_change_password vẫn 1', async () => {
+    await seedMustChangeUser()
+    const login = await exports.default.fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'owner_mcp', password: 'admin123' }),
+    })
+    const cookie = `${SESSION_COOKIE}=${(login.headers.get('set-cookie') ?? '').match(new RegExp(`${SESSION_COOKIE}=([^;]+)`))![1]}`
+
+    const res = await exports.default.fetch(`${BASE}/api/auth/change-password`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ current_password: 'sai-mat-khau-hien-tai', new_password: 'mat-khau-moi-123' }),
+    })
+    expect(res.status).toBe(401)
+    const body = (await res.json()) as { error?: { code?: string } }
+    expect(body.error?.code).toBe('UNAUTHORIZED')
+
+    // must_change_password vẫn 1 — đổi thất bại KHÔNG được có side-effect âm thầm.
+    const row = await db
+      .prepare("SELECT must_change_password FROM users WHERE username = 'owner_mcp'")
+      .first<{ must_change_password: number }>()
+    expect(row?.must_change_password).toBe(1)
+  })
+
+  it('change-password thành công → must_change_password=0, login lại bằng mật khẩu MỚI OK, mật khẩu CŨ hết dùng được', async () => {
+    await seedMustChangeUser()
+    const login = await exports.default.fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'owner_mcp', password: 'admin123' }),
+    })
+    const cookie = `${SESSION_COOKIE}=${(login.headers.get('set-cookie') ?? '').match(new RegExp(`${SESSION_COOKIE}=([^;]+)`))![1]}`
+
+    const change = await exports.default.fetch(`${BASE}/api/auth/change-password`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ current_password: 'admin123', new_password: 'mat-khau-moi-123' }),
+    })
+    expect(change.status).toBe(200)
+
+    // DB: must_change_password đã về 0.
+    const row = await db
+      .prepare("SELECT must_change_password FROM users WHERE username = 'owner_mcp'")
+      .first<{ must_change_password: number }>()
+    expect(row?.must_change_password).toBe(0)
+
+    // Login lại bằng mật khẩu CŨ ('admin123') → phải sai (đã đổi thật, không phải ảo).
+    const loginOld = await exports.default.fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'owner_mcp', password: 'admin123' }),
+    })
+    expect(loginOld.status).toBe(401)
+
+    // Login bằng mật khẩu MỚI → 200, must_change_password=0.
+    const loginNew = await exports.default.fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'owner_mcp', password: 'mat-khau-moi-123' }),
+    })
+    expect(loginNew.status).toBe(200)
+    const body = (await loginNew.json()) as { must_change_password: boolean }
+    expect(body.must_change_password).toBe(false)
+  })
+
+  it('change-password KHÔNG có phiên đăng nhập → 401', async () => {
+    const res = await exports.default.fetch(`${BASE}/api/auth/change-password`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ current_password: 'admin123', new_password: 'mat-khau-moi-123' }),
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('không còn ADMIN_PASSWORD: login KHÔNG phụ thuộc env đó (bỏ binding vẫn login được)', async () => {
+    // env test (vitest.config.ts) KHÔNG còn khai ADMIN_PASSWORD — nếu route login
+    // còn lỡ đọc c.env.ADMIN_PASSWORD, giá trị sẽ luôn undefined, và nếu logic cũ
+    // (đã bị T-22/T-23 bỏ) còn sót lại so sánh với nó thì test này sẽ lộ ra do
+    // login đúng mật khẩu bảng users vẫn phải THÀNH CÔNG bình thường.
+    await seedMustChangeUser()
+    const res = await exports.default.fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'owner_mcp', password: 'admin123' }),
+    })
+    expect(res.status).toBe(200)
   })
 })
 
