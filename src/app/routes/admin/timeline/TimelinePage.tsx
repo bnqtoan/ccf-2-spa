@@ -10,6 +10,7 @@ import { useSession } from '../../../lib/useSession'
 import {
   addAppointmentItem,
   ApiError,
+  createAdminBooking,
   createTimeOff,
   getAvailability,
   getReassignQueue,
@@ -147,6 +148,107 @@ export default function TimelinePage() {
   const [addStaffId, setAddStaffId] = useState<number | null>(null)
   const [addSaving, setAddSaving] = useState(false)
   const [addSaveError, setAddSaveError] = useState<string | null>(null)
+
+  // T-29: "Tạo lịch ngay trên timeline" (G1/G2) — bấm một Ô TRỐNG (KTV × giờ)
+  // hoặc nút "+ Đặt lịch" trên qbar -> sheet đặt lịch, prefill sẵn KTV của
+  // cột và giờ của dòng vừa bấm (sửa được cả hai). Ghi qua ĐÚNG write-path đã
+  // có (POST /api/admin/bookings, source='admin', status='booked') — KHÔNG
+  // validate slot/skill/shift mới ở đây (card cạm bẫy #1).
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createServices, setCreateServices] = useState<Service[] | null>(null)
+  const [createLoadError, setCreateLoadError] = useState<string | null>(null)
+  const [createServiceId, setCreateServiceId] = useState<number | null>(null)
+  const [createVariantId, setCreateVariantId] = useState<number | null>(null)
+  const [createStaffId, setCreateStaffId] = useState<number | null>(null)
+  const [createTime, setCreateTime] = useState('09:00')
+  const [createName, setCreateName] = useState('')
+  const [createPhone, setCreatePhone] = useState('')
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createSaveError, setCreateSaveError] = useState<string | null>(null)
+
+  function ensureCreateServicesLoaded() {
+    if (createServices === null) {
+      setCreateLoadError(null)
+      getServices()
+        .then(setCreateServices)
+        .catch(() => setCreateLoadError('Không tải được danh mục dịch vụ. Vui lòng thử lại.'))
+    }
+  }
+
+  /** Nút "+ Đặt lịch" trên qbar — không prefill KTV/giờ cụ thể. */
+  function openCreateBooking() {
+    setCreateStaffId(null)
+    setCreateTime('09:00')
+    setCreateServiceId(null)
+    setCreateVariantId(null)
+    setCreateName('')
+    setCreatePhone('')
+    setCreateSaveError(null)
+    setCreateOpen(true)
+    ensureCreateServicesLoaded()
+  }
+
+  /** Bấm một ô trống trên lưới (KTV × giờ) — prefill đúng cột + đúng giờ. */
+  function openCreateBookingAt(staffId: number, hour: number) {
+    setCreateStaffId(staffId)
+    setCreateTime(`${String(hour).padStart(2, '0')}:00`)
+    setCreateServiceId(null)
+    setCreateVariantId(null)
+    setCreateName('')
+    setCreatePhone('')
+    setCreateSaveError(null)
+    setCreateOpen(true)
+    ensureCreateServicesLoaded()
+  }
+
+  function closeCreateBooking() {
+    setCreateOpen(false)
+  }
+
+  function handleCreateServiceChange(rawId: string) {
+    const id = rawId === '' ? null : Number(rawId)
+    setCreateServiceId(id)
+    setCreateVariantId(null)
+  }
+
+  function handleCreateVariantChange(rawId: string) {
+    const id = rawId === '' ? null : Number(rawId)
+    setCreateVariantId(id)
+  }
+
+  async function handleCreateBookingSubmit() {
+    const time = parseHm(createTime)
+    if (createVariantId === null || createStaffId === null || time === null || createName.trim() === '') return
+    setCreateSaving(true)
+    setCreateSaveError(null)
+    try {
+      const startAt = localDateHmToEpoch(date, time.hh, time.mm)
+      await createAdminBooking({
+        name: createName.trim(),
+        phone: createPhone.trim() || undefined,
+        variant_id: createVariantId,
+        staff_id: createStaffId,
+        start_at: startAt,
+      })
+      setCreateOpen(false)
+      // Block hiện ngay trên timeline (card: "sau khi tạo, hiện ngay").
+      await loadAll()
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'SLOT_TAKEN') {
+        setCreateSaveError('Khung giờ này vừa có người đặt mất. Vui lòng chọn giờ hoặc kỹ thuật viên khác.')
+      } else if (err instanceof ApiError && err.code === 'STAFF_LACKS_SKILL') {
+        setCreateSaveError('Kỹ thuật viên này không có kỹ năng của dịch vụ đã chọn.')
+      } else if (err instanceof ApiError && err.code === 'OUTSIDE_SHIFT') {
+        setCreateSaveError('Khoảng giờ này không nằm trong ca làm việc của kỹ thuật viên.')
+      } else if (err instanceof ApiError) {
+        setCreateSaveError(err.message)
+      } else {
+        setCreateSaveError('Không tạo được lịch. Vui lòng thử lại.')
+      }
+    } finally {
+      setCreateSaving(false)
+    }
+  }
 
   function openAddService() {
     setAddServiceOpen(true)
@@ -449,6 +551,11 @@ export default function TimelinePage() {
             ›
           </button>
         </div>
+        {canAddService && (
+          <Button variant="primary" size="sm" data-testid="create-booking-open" onClick={openCreateBooking}>
+            + Đặt lịch
+          </Button>
+        )}
       </div>
 
       {staff.length === 0 ? (
@@ -490,8 +597,20 @@ export default function TimelinePage() {
                     return offStartMin >= hourStartMin && offStartMin < hourEndMin
                   })
 
+                  // Ô trống (không có booking, không có khối nghỉ trong giờ này) mở
+                  // sheet đặt lịch prefill đúng cột (staff) + đúng giờ (hàng) vừa
+                  // bấm (card: "click ô trống -> tạo object prefill"). Chỉ owner/
+                  // lễ tân thấy được thao tác này ở UI — server vẫn là gate thật.
+                  const isEmptyCell = itemsInHour.length === 0 && offInHour === undefined
+                  const cellIsClickable = isEmptyCell && canAddService
+
                   return (
-                    <div className="ccf-tl-cell" key={`cell-${h}-${s.id}`} data-testid={`cell-${s.id}-${h}`}>
+                    <div
+                      className={`ccf-tl-cell${cellIsClickable ? ' ccf-tl-cell--clickable' : ''}`}
+                      key={`cell-${h}-${s.id}`}
+                      data-testid={`cell-${s.id}-${h}`}
+                      onClick={cellIsClickable ? () => openCreateBookingAt(s.id, h) : undefined}
+                    >
                       {offInHour &&
                         (() => {
                           const startMin = minutesOfLocalDay(offInHour.start_at)
@@ -799,6 +918,122 @@ export default function TimelinePage() {
                 </>
               )
             })()}
+        </div>
+      </Sheet>
+
+      <Sheet
+        open={createOpen}
+        onClose={closeCreateBooking}
+        title="Đặt lịch"
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeCreateBooking}>
+              Đóng
+            </Button>
+            <Button
+              variant="primary"
+              data-testid="create-booking-submit"
+              disabled={
+                createVariantId === null ||
+                createStaffId === null ||
+                createName.trim() === '' ||
+                parseHm(createTime) === null ||
+                createSaving
+              }
+              onClick={handleCreateBookingSubmit}
+            >
+              {createSaving ? 'Đang lưu...' : 'Đặt lịch'}
+            </Button>
+          </>
+        }
+      >
+        <div data-testid="create-booking-sheet">
+          {createLoadError && <Notice tone="warn">{createLoadError}</Notice>}
+
+          {createSaveError && (
+            <Notice tone="warn" style={{ marginBottom: 12 }} data-testid="create-booking-error">
+              {createSaveError}
+            </Notice>
+          )}
+
+          <div className="ccf-tl-label">Khách hàng</div>
+          <Field
+            label="Tên khách"
+            data-testid="create-booking-name"
+            placeholder="Tên khách hàng"
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+          />
+          <Field
+            label="Số điện thoại (không bắt buộc)"
+            type="tel"
+            inputMode="numeric"
+            data-testid="create-booking-phone"
+            placeholder="0901 234 567"
+            value={createPhone}
+            onChange={(e) => setCreatePhone(e.target.value)}
+          />
+
+          <div className="ccf-tl-label">Dịch vụ</div>
+          <Field
+            as="select"
+            label="Dịch vụ"
+            data-testid="create-booking-service-select"
+            value={createServiceId ?? ''}
+            onChange={(e) => handleCreateServiceChange(e.target.value)}
+          >
+            <option value="">— Chọn dịch vụ —</option>
+            {createServices?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Field>
+
+          {createServiceId !== null &&
+            (() => {
+              const svc = createServices?.find((s) => s.id === createServiceId) ?? null
+              if (svc === null) return null
+              return (
+                <Field
+                  as="select"
+                  label="Gói"
+                  data-testid="create-booking-variant-select"
+                  value={createVariantId ?? ''}
+                  onChange={(e) => handleCreateVariantChange(e.target.value)}
+                >
+                  <option value="">— Chọn gói —</option>
+                  {svc.variants.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </Field>
+              )
+            })()}
+
+          <div className="ccf-tl-label">Giờ + kỹ thuật viên · {formatDateNav(date, todayStr)}</div>
+          <Field
+            label="Giờ bắt đầu"
+            type="time"
+            data-testid="create-booking-time"
+            value={createTime}
+            onChange={(e) => setCreateTime(e.target.value)}
+          />
+          <Field
+            as="select"
+            label="Kỹ thuật viên"
+            data-testid="create-booking-staff-select"
+            value={createStaffId ?? ''}
+            onChange={(e) => setCreateStaffId(e.target.value === '' ? null : Number(e.target.value))}
+          >
+            <option value="">— Chọn kỹ thuật viên —</option>
+            {staff.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Field>
         </div>
       </Sheet>
 

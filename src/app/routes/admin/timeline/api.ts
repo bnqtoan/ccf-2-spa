@@ -177,6 +177,36 @@ export interface AddAppointmentItemResult {
   item: { id: number; [key: string]: unknown }
 }
 
+// --- T-29: tạo lịch trực tiếp trên timeline (click ô trống -> prefill) -----
+
+export interface CreateAdminBookingResult {
+  appointment: { id: number; [key: string]: unknown }
+  item: { id: number; [key: string]: unknown }
+}
+
+/**
+ * `POST /api/admin/bookings` — lễ tân tạo một lịch TƯƠNG LAI cho khách (gọi
+ * điện / vãng lai) ngay từ timeline: `source='admin'`, `status='booked'`
+ * (khác walk-in: không phải "ngay bây giờ", không phải in_service). Gate ở
+ * SERVER (owner + lễ tân) — bài học T-28: ẩn nút UI không đủ, KTV gọi thẳng
+ * endpoint này vẫn phải nhận 403.
+ */
+export async function createAdminBooking(input: {
+  name: string
+  phone?: string
+  variant_id: number
+  start_at: number
+  staff_id: number
+}): Promise<CreateAdminBookingResult> {
+  const res = await fetch('/api/admin/bookings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) return parseErrorAndThrow(res)
+  return (await res.json()) as CreateAdminBookingResult
+}
+
 /**
  * `POST /api/admin/appointments/:id/items` — thêm một item combo vào một
  * appointment ĐÃ CÓ. Backend re-validate booking đầy đủ + chặn 2 item cùng

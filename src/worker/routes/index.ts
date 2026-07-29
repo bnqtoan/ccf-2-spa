@@ -1,5 +1,6 @@
 import type { Hono } from 'hono'
 import adminCrud from './admin-crud'
+import adminBookings from './admin-bookings.ts'
 import adminWalkin from './admin-walkin.ts'
 import availability from './availability.ts'
 import bookings from './bookings.ts'
@@ -59,6 +60,11 @@ export function registerRoutes(app: Hono) {
   // (đã xác nhận bằng exploit thật khi làm T-25). UI ẩn nút KHÔNG đủ — gate ở server.
   app.use('/api/admin/appointments/*', requireRoleMw('owner', 'receptionist'))
 
+  // T-29 — tạo lịch trực tiếp trên timeline = thao tác VẬN HÀNH giống walk-in/
+  // combo ở trên: owner + lễ tân, KHÔNG technician. Gate ở route (bài học
+  // T-28), không chỉ ẩn nút UI.
+  app.use('/api/admin/bookings', requireRoleMw('owner', 'receptionist'))
+
   app.route('/', auth) // T-19 — login / logout / session (public)
   app.route('/', adminCrud)
   app.route('/', availability) // T-03
@@ -67,6 +73,7 @@ export function registerRoutes(app: Hono) {
   app.route('/', reschedule) // T-24 — khách tự đổi giờ (reschedule) nguyên tử
   app.route('/', adminStatus) // T-05
   app.route('/', adminWalkin) // T-08
+  app.route('/', adminBookings) // T-29 — tạo lịch trên timeline (source='admin')
   app.route('/', adminTimeoff) // T-07
   app.route('/', adminReassign) // T-07
   app.route('/', services) // T-16
