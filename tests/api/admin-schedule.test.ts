@@ -236,6 +236,23 @@ describe('GET /api/admin/schedule', () => {
     expect(item.source).toBeDefined()
   })
 
+  // T-25: sheet "+ Thêm dịch vụ" gọi POST /api/admin/appointments/:id/items —
+  // cần appointment_id của item để biết gọi đúng appointment nào.
+  it('item trả kèm appointment_id để UI gọi được API thêm dịch vụ vào đúng appointment', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    const variant = await insertVariant(skill, { duration: 60, buffer: 0 })
+    const { start: dayStart } = localDayBounds(DATE)
+    const startAt = dayStart + 3600
+    const itemId = await seedBooking(lan, variant, startAt, 60, 0)
+
+    const { body } = await getSchedule(DATE)
+    const lanEntry = body.staff.find((s: any) => s.id === lan)
+    const item = lanEntry.items.find((i: any) => i.id === itemId)
+    expect(item.appointment_id).toBeDefined()
+    expect(Number.isInteger(item.appointment_id)).toBe(true)
+  })
+
   it('time_off của KTV trong ngày được trả kèm', async () => {
     const skill = await insertSkill('Massage')
     const lan = await insertStaff('Lan', [skill])

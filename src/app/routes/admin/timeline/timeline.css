@@ -286,3 +286,52 @@
   font-size: 14px;
   line-height: 1.6;
 }
+
+/* ---------- T-25: "+ Thêm dịch vụ" — form chọn dịch vụ/gói/giờ/KTV ---------- */
+.ccf-tl-add-btn {
+  width: 100%;
+  margin-top: 14px;
+}
+.ccf-tl-slots {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.ccf-tl-slot {
+  padding: 11px 0;
+  border-radius: 10px;
+  border: 1.5px solid var(--line);
+  background: var(--white);
+  font-weight: 620;
+  font-size: 14.5px;
+  text-align: center;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ccf-tl-slot.ccf-tl-slot--sel {
+  border-color: var(--g-600);
+  background: var(--g-50);
+  color: var(--g-900);
+}
+.ccf-tl-staffpick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 11px 12px;
+  border-radius: var(--r, 12px);
+  border: 1.5px solid var(--line);
+  background: var(--white);
+  cursor: pointer;
+  margin-bottom: 9px;
+  font-family: inherit;
+}
+.ccf-tl-staffpick.ccf-tl-staffpick--sel {
+  border-color: var(--g-600);
+  background: var(--g-50);
+}
+.ccf-tl-staffpick .ccf-tl-nm {
+  font-weight: 650;
+  font-size: 14.5px;
+}
