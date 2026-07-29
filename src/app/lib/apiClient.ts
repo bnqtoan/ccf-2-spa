@@ -48,9 +48,18 @@ export interface ComboAvailability {
 
 export interface ComboBookingResult {
   appointment: { id: number; [key: string]: unknown }
-  items: Array<{ id: number; [key: string]: unknown }>
+  items: Array<{ id: number; staff_id?: number; start_at?: number; end_at?: number; [key: string]: unknown }>
+  /** Serial: the single technician. Parallel: null (see `staff_by_id`). */
   staff: { id: number; name: string } | null
+  /** Parallel only: the roster of the DIFFERENT technicians, one per leg, so the
+   *  UI can show "ai làm gì lúc nào". Undefined for serial. */
+  staff_by_id?: Array<{ id: number; name: string }>
+  mode?: 'serial' | 'parallel'
 }
+
+/** How a combo is served. serial = 1 KTV nối tiếp (R1a); parallel = nhiều KTV
+ *  cùng lúc (R1b). */
+export type ComboMode = 'serial' | 'parallel'
 
 export interface ApiErrorBody {
   error: { code: string; message: string }
@@ -179,12 +188,18 @@ export async function getPaymentStatus(orderRef: string): Promise<PaymentStatusR
 export async function getComboAvailability(
   variantIds: number[],
   date: string,
-  staffId?: number,
+  opts?: { staffId?: number; mode?: ComboMode },
 ): Promise<ComboAvailability> {
   const res = await fetch('/api/combo/availability', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ variant_ids: variantIds, date, ...(staffId !== undefined ? { staff_id: staffId } : {}) }),
+    body: JSON.stringify({
+      variant_ids: variantIds,
+      date,
+      ...(opts?.mode !== undefined ? { mode: opts.mode } : {}),
+      // Parallel ignores staff_id (N techs); only pass it for serial.
+      ...(opts?.staffId !== undefined && opts.mode !== 'parallel' ? { staff_id: opts.staffId } : {}),
+    }),
   })
   if (!res.ok) return parseErrorAndThrow(res)
   return (await res.json()) as ComboAvailability
@@ -195,6 +210,7 @@ export interface ComboBookingPayload {
   variant_ids: number[]
   start_at: number
   staff_id?: number
+  mode?: ComboMode
 }
 
 /** `POST /api/combo/bookings` — creates ONE appointment with N serial items on

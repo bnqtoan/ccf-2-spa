@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assignParallel,
   comboTotalBlockSec,
   computeComboAvailability,
+  computeParallelAvailability,
   coversAllSkills,
   layoutChain,
+  layoutParallel,
+  parallelSpanSec,
+  parallelZonesDistinct,
   requiredSkillIds,
   type ComboLeg,
   type StaffWithSkills,
+  type ZonedComboLeg,
 } from '../../src/worker/lib/combo.ts'
 import { localDayBounds, minutesToEpoch } from '../../src/worker/lib/time.ts'
 
@@ -156,5 +162,126 @@ describe('computeComboAvailability — window fit', () => {
     expect(slots.every((s) => s.start_at + CHAIN <= TEN || s.start_at >= TEN + 6 * 3600)).toBe(true)
     // 09:00 start (chain runs to ~10:10) would collide with the 10:00 booking → not offered.
     expect(slots.find((s) => s.start_at === NINE)).toBeUndefined()
+  })
+})
+
+// ===========================================================================
+// PARALLEL engine (R1b) — DIFFERENT techs, SAME start. Do not confuse with
+// serial: each leg gets its OWN qualified tech, and the techs are DISTINCT.
+// ===========================================================================
+
+function zoned(id: number, duration: number, buffer: number, skill: number, zone: string): ZonedComboLeg {
+  return { variant_id: id, duration_min: duration, buffer_after_min: buffer, skill_id: skill, body_zone: zone }
+}
+
+describe('parallelZonesDistinct + parallelSpanSec', () => {
+  it('distinct zones → true; a repeated zone → false (cannot do two things on one zone at once)', () => {
+    expect(parallelZonesDistinct([zoned(1, 60, 10, 1, 'body'), zoned(2, 45, 5, 2, 'hands')])).toBe(true)
+    expect(parallelZonesDistinct([zoned(1, 60, 10, 1, 'body'), zoned(2, 45, 5, 2, 'body')])).toBe(false)
+  })
+
+  it('span is the LONGEST leg block (all legs start together, done when longest finishes)', () => {
+    expect(parallelSpanSec([zoned(1, 60, 10, 1, 'body'), zoned(2, 45, 5, 2, 'hands')])).toBe((60 + 10) * 60)
+  })
+})
+
+describe('assignParallel — bipartite matching legs→distinct techs', () => {
+  it('assigns each leg a distinct tech when a perfect matching exists', () => {
+    // leg0 can be tech 1 or 2; leg1 only tech 1 → leg1 must take 1, leg0 takes 2.
+    const res = assignParallel([[1, 2], [1]])
+    expect(res).not.toBeNull()
+    expect(new Set(res!).size).toBe(2) // distinct techs
+    expect(res![1]).toBe(1) // leg1 forced to tech 1
+  })
+
+  it('returns null when two legs need the SAME single tech (no perfect matching)', () => {
+    // Both legs only qualify tech 7 → cannot staff both at once with distinct techs.
+    expect(assignParallel([[7], [7]])).toBeNull()
+  })
+
+  it('a leg with no candidates → null', () => {
+    expect(assignParallel([[1], []])).toBeNull()
+  })
+})
+
+describe('layoutParallel', () => {
+  it('every item starts at startAt on its assigned tech; endAt = longest leg', () => {
+    const legs: ComboLeg[] = [
+      { variant_id: 10, duration_min: 60, buffer_after_min: 10, skill_id: 1 },
+      { variant_id: 20, duration_min: 45, buffer_after_min: 5, skill_id: 2 },
+    ]
+    const { items, endAt, blockEndAt } = layoutParallel(legs, 1000, [3, 4])
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ variant_id: 10, start_at: 1000, end_at: 1000 + 3600, staff_id: 3 })
+    expect(items[1]).toMatchObject({ variant_id: 20, start_at: 1000, end_at: 1000 + 45 * 60, staff_id: 4 })
+    expect(endAt).toBe(1000 + 3600) // longest leg's service end
+    expect(blockEndAt).toBe(1000 + 3600 + 10 * 60) // longest block end
+  })
+})
+
+describe('computeParallelAvailability', () => {
+  const legs = [zoned(1, 60, 10, 1, 'body'), zoned(2, 45, 5, 2, 'hands')]
+
+  it('two distinct qualified techs free → slots offered, assignment uses distinct techs', () => {
+    const slots = computeParallelAvailability({
+      legs,
+      staff: [staff(1, [1]), staff(2, [2])], // each covers one leg
+      shifts: [shift(1), shift(2)],
+      timeOff: [],
+      busyItems: [],
+      dayStart: DAY_START,
+      dayEnd: DAY_END,
+      now: DAY_START,
+    })
+    expect(slots.length).toBeGreaterThan(0)
+    for (const s of slots) expect(new Set(s.staff_ids).size).toBe(2)
+    expect(slots[0]!.start_at).toBe(NINE) // shift start
+  })
+
+  it('ONLY ONE tech free but qualified for BOTH legs → NO slot (need TWO distinct bodies at once)', () => {
+    // A single super-tech can do serial, but parallel needs TWO people at once.
+    const slots = computeParallelAvailability({
+      legs,
+      staff: [staff(1, [1, 2])], // one tech holds both skills, but there is only one of them
+      shifts: [shift(1)],
+      timeOff: [],
+      busyItems: [],
+      dayStart: DAY_START,
+      dayEnd: DAY_END,
+      now: DAY_START,
+    })
+    expect(slots).toEqual([]) // cannot staff two simultaneous legs with one person
+  })
+
+  it('leg2 tech busy at 09:00 but free later → 09:00 not offered, a later start is', () => {
+    const slots = computeParallelAvailability({
+      legs,
+      staff: [staff(1, [1]), staff(2, [2])],
+      shifts: [shift(1), shift(2)],
+      timeOff: [],
+      // tech 2 (needed for leg2) busy 09:00–10:00.
+      busyItems: [{ staff_id: 2, start_at: NINE, block_end_at: TEN }],
+      dayStart: DAY_START,
+      dayEnd: DAY_END,
+      now: DAY_START,
+    })
+    // 09:00 needs tech2 who is busy → no distinct assignment → not offered.
+    expect(slots.find((s) => s.start_at === NINE)).toBeUndefined()
+    // a start at/after 10:00 works.
+    expect(slots.find((s) => s.start_at >= TEN)).toBeDefined()
+  })
+
+  it('a leg with no qualified tech at all → zero slots', () => {
+    const slots = computeParallelAvailability({
+      legs,
+      staff: [staff(1, [1])], // nobody holds skill 2
+      shifts: [shift(1)],
+      timeOff: [],
+      busyItems: [],
+      dayStart: DAY_START,
+      dayEnd: DAY_END,
+      now: DAY_START,
+    })
+    expect(slots).toEqual([])
   })
 })
