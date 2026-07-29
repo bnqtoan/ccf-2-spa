@@ -6,8 +6,11 @@ model: opus
 effort: high
 depends_on: ["T-22", "T-24"]
 touches:
-  - src/app/routes/admin/TimelinePage.tsx
-  - src/app/routes/admin/timeline.css
+  - src/app/routes/admin/timeline/TimelinePage.tsx
+  - src/app/routes/admin/timeline/timeline.css
+  - src/app/routes/admin/timeline/api.ts
+  - tests/e2e/admin-timeline.spec.ts
+  - tests/api/admin-reschedule.test.ts
 prd_refs: []
 owner: null
 started_at: null
