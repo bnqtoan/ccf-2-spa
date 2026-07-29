@@ -82,4 +82,17 @@ cơ thể bị chặn với thông báo dễ hiểu; item mới hiện ngay.
 - Reload schedule sau khi thêm để item mới hiện (đừng chỉ đóng sheet).
 
 ## Đã làm gì
-(agent điền khi xong)
+- `TimelinePage.tsx`: nút "+ Thêm dịch vụ" trong sheet chi tiết booking → form chọn
+  dịch vụ+gói / KTV / giờ → gọi `POST /api/admin/appointments/:id/items` (backend
+  có sẵn, không viết lại). Item mới hiện ngay (reload schedule). Nút ẩn với
+  technician (dùng useSession role — defense-in-depth phía UI; server-gate tách T-28).
+- `admin-schedule.ts` (+4 dòng, mở rộng touches có duyệt): thêm `appointment_id` vào
+  SELECT + ScheduleItem — vì không route GET nào trả appointment_id cho booking_item
+  (endpoint items cần appointment id). `timeline/api.ts` type tương ứng.
+- Trùng body_zone → báo tiếng Việt thân thiện, không lộ ZONE_CONFLICT thô.
+- Test: admin-schedule.test.ts +appointment_id case; admin-timeline.spec.ts +e2e
+  thêm-dịch-vụ. Verify: typecheck sạch, vitest 414, e2e admin-timeline 12/12.
+- **Ghi nhận (→ T-28, không sửa ở đây):** POST /appointments/:id/items THIẾU
+  requireRoleMw → technician gọi thẳng API được (UI ẩn nút không đủ). Server-gate ở T-28.
+- Lưu ý thực thi: agent wedge ở bước chờ e2e/no-code (shared-D1 bị reseed đồng thời);
+  orchestrator tự commit + verify (typecheck/vitest/e2e admin-timeline) thay no-code verdict.
