@@ -360,6 +360,37 @@ describe('login username+password', () => {
   })
 })
 
+describe('T-28 — thêm item combo vào appointment (owner+lễ tân, KHÔNG technician)', () => {
+  // Gate ở middleware (registerRoutes) chặn TRƯỚC handler → technician bị 403 mà
+  // KHÔNG cần appointment hợp lệ. owner/lễ tân qua gate (dừng ở validation của
+  // handler, KHÔNG phải 403). Trước T-28 route này chỉ có adminAuthGuard →
+  // technician gọi thẳng được (exploit thật khi làm T-25) = lỗ hổng.
+  it('technician POST /appointments/:id/items → 403 (không đủ quyền, chặn ở gate)', async () => {
+    const res = await req('/api/admin/appointments/1/items', await cookie(KTV_LAN), {
+      method: 'POST',
+      body: JSON.stringify({ variant_id: 1, staff_id: MAI_ID, start_at: 0 }),
+    })
+    expect(res.status).toBe(403)
+    expect((await res.json() as any).error.code).toBe('FORBIDDEN')
+  })
+
+  it('lễ tân POST /appointments/:id/items → KHÔNG 403 (qua gate; lỗi khác là validation handler)', async () => {
+    const res = await req('/api/admin/appointments/999999/items', await cookie(RECEPTION), {
+      method: 'POST',
+      body: JSON.stringify({ variant_id: 1, staff_id: MAI_ID, start_at: 0 }),
+    })
+    expect(res.status).not.toBe(403) // qua gate — có thể 404/422 do appointment/data giả, nhưng KHÔNG bị chặn quyền
+  })
+
+  it('owner POST /appointments/:id/items → KHÔNG 403 (qua gate)', async () => {
+    const res = await req('/api/admin/appointments/999999/items', await cookie(OWNER), {
+      method: 'POST',
+      body: JSON.stringify({ variant_id: 1, staff_id: MAI_ID, start_at: 0 }),
+    })
+    expect(res.status).not.toBe(403)
+  })
+})
+
 describe('route KHÁCH + webhook payment KHÔNG bị RBAC đụng', () => {
   it('GET /api/services (khách) không cần role → 200', async () => {
     const res = await exports.default.fetch(`${BASE}/api/services`)

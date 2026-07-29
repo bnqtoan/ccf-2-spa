@@ -1,7 +1,7 @@
 ---
 id: T-28
 title: Fix RBAC gap — gate POST /appointments/:id/items (owner+receptionist)
-status: todo
+status: review
 model: sonnet
 effort: low
 depends_on: [T-22]
@@ -69,4 +69,7 @@ receptionist vẫn được. Bịt lỗ hổng technician-lạm-quyền qua API 
 - Kiểm requireRoleMw nhận nhiều role; nếu chỉ nhận 1, mở rộng cẩn thận (T-22 test còn xanh).
 
 ## Đã làm gì
-(agent điền khi xong)
+- routes/index.ts: thêm 1 dòng gate app.use('/api/admin/appointments/*', requireRoleMw('owner','receptionist')) sau priceMutation. requireRoleMw đã variadic (T-22).
+- Test rbac.test.ts describe T-28: technician POST → 403 FORBIDDEN; receptionist+owner → KHÔNG 403.
+- Verify: typecheck sạch, vitest 417/417. Bịt lỗ hổng technician thêm item cho appointment KTV khác (corroborated live khi làm T-25).
+- Orchestrator tự làm (card 1-dòng).

@@ -53,6 +53,12 @@ export function registerRoutes(app: Hono) {
   app.on(priceMutation, '/api/admin/variants', requireRoleMw('owner'))
   app.on(priceMutation, '/api/admin/variants/*', requireRoleMw('owner'))
 
+  // T-28 — thêm item combo vào appointment = thao tác VẬN HÀNH: owner + lễ tân,
+  // KHÔNG technician (technician chỉ dữ liệu của mình; thêm item cho appointment
+  // bất kỳ là vượt quyền). T-22 bỏ sót route này → technician gọi thẳng API được
+  // (đã xác nhận bằng exploit thật khi làm T-25). UI ẩn nút KHÔNG đủ — gate ở server.
+  app.use('/api/admin/appointments/*', requireRoleMw('owner', 'receptionist'))
+
   app.route('/', auth) // T-19 — login / logout / session (public)
   app.route('/', adminCrud)
   app.route('/', availability) // T-03
