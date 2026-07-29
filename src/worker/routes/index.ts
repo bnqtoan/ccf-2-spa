@@ -5,6 +5,7 @@ import availability from './availability.ts'
 import bookings from './bookings.ts'
 import adminStatus from './admin-status.ts'
 import cancel from './cancel.ts'
+import reschedule from './reschedule.ts'
 import adminTimeoff from './admin-timeoff.ts'
 import adminReassign from './admin-reassign.ts'
 import services from './services.ts'
@@ -57,6 +58,7 @@ export function registerRoutes(app: Hono) {
   app.route('/', availability) // T-03
   app.route('/', bookings) // T-04
   app.route('/', cancel) // T-05
+  app.route('/', reschedule) // T-24 — khách tự đổi giờ (reschedule) nguyên tử
   app.route('/', adminStatus) // T-05
   app.route('/', adminWalkin) // T-08
   app.route('/', adminTimeoff) // T-07

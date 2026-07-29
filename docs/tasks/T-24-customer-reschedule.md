@@ -1,7 +1,7 @@
 ---
 id: T-24
 title: G5 — Khách tự đổi giờ (reschedule) lịch của mình
-status: todo
+status: review
 model: opus
 effort: medium
 depends_on: []
@@ -86,4 +86,39 @@ thái "đã mất giờ cũ mà chưa có giờ mới" — nếu giờ mới b�
 - Dùng lại validateBooking — đừng bỏ sót rule nào (grid/skill/ca/overlap/time-off).
 
 ## Đã làm gì
-(agent điền khi xong)
+
+**Endpoint** `POST /api/bookings/:id/reschedule` (`src/worker/routes/reschedule.ts`) —
+đổi giờ NGUYÊN TỬ, 6 bước theo write-path của POST /api/bookings:
+1. shape-validate body `{start_at, staff_id?}` → 422 VALIDATION
+2. load item + variant/skill → 404 NOT_FOUND
+3. transition guard (`canTransition`, chỉ 'booked') → 409 INVALID_TRANSITION
+4. cutoff 2h server-side (`canCustomerCancel`, đồng hồ server) → 409 CANCEL_TOO_LATE
+5. `validateBooking` (ADVISORY) — trả mã lỗi đẹp skill/ca/grid → 422/409
+6. `rescheduleItemAtomically` — TRỌNG TÀI chống-race → 409 SLOT_TAKEN
+
+**SQL-guard nguyên tử** (`rescheduleItemAtomically` trong `db/bookings.ts`): MỘT câu
+`UPDATE booking_items SET (giờ mới) WHERE id=? AND status='booked' AND NOT EXISTS(overlap
+giờ mới, loại bi.id != ? cho chính nó) AND NOT EXISTS(time_off)`. `meta.changes`=1 → dời;
+=0 → SLOT_TAKEN và item CŨ Y NGUYÊN. KHÔNG huỷ-rồi-đặt bằng 2 request → không bao giờ mất
+lịch âm thầm. KTV giữ nguyên nếu không gửi staff_id (chỉ đổi GIỜ).
+
+**Phụ trợ**: thêm cột `variant_id` vào `listBookingsByPhone` SELECT + type `CustomerBookingRow`
+(UI cần variant_id để mở grid); thêm tham số `excludeItemId` cho `loadStaffWindowContext`
+(loại chính item đang dời khỏi advisory-check). Đăng ký 1 dòng route trong `routes/index.ts`.
+
+**UI** (`src/app/routes/lookup/`): nút "Đổi giờ" cạnh "Huỷ" trong thẻ lịch (chỉ hiện >2h,
+cùng ngưỡng nút Huỷ). Bấm → `RescheduleScreen`: mở lại grid chọn giờ của ĐÚNG dịch vụ đó
+(dải 14 ngày + slot theo buổi, giống TimeScreen), chọn giờ → xác nhận → cập nhật lịch tại
+chỗ. Slot bị cướp → notice nhẹ + tải lại grid; <2h/409 bất ngờ → hotline như huỷ. Không lộ
+mã lỗi thô. Thêm helper date/time vào lookup/format.ts + style ccf-lk-rs-* vào lookup.css.
+
+**Test**: `tests/api/reschedule.test.ts` (11 case, gồm "slot mới bị cướp → item cũ giữ
+nguyên", <2h, ngoài ca, thiếu skill, time_off, cancelled/done→INVALID_TRANSITION, dịch nhẹ
+trong block chính mình). `tests/e2e/customer-reschedule.spec.ts` (2 case: đổi giờ thành công
+end-to-end + <2h không hiện nút).
+
+**Gate-2**: typecheck xanh · npm test 372/372 xanh · e2e 86/86 xanh (--workers=1) · build xanh.
+Sub-agent no-code (không đọc source) đóng vai khách: đổi giờ THÀNH CÔNG (17:17→09:00 hôm sau,
+vẫn 'booked') + xác nhận đổi sang 03:00 (ngoài ca) bị từ chối mà lịch cũ GIỮ NGUYÊN tuyệt đối
+(không mất, không cancelled). Đã xem UI thật: nút "Đổi giờ" + grid render đúng, grid chỉ chào
+slot hợp-lệ nên khách không gặp lỗi thô "lưới 15 phút".
