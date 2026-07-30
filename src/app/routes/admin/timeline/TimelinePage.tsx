@@ -696,30 +696,14 @@ export default function TimelinePage() {
     }
   }
 
-  if (loading && schedule === null) {
-    return (
-      <div className="ccf-tl-page">
-        <p>Đang tải lịch...</p>
-      </div>
-    )
-  }
-
-  if (error && schedule === null) {
-    return (
-      <div className="ccf-tl-page">
-        <Notice tone="warn">{error}</Notice>
-        <Button variant="ghost" onClick={loadAll}>
-          Thử lại
-        </Button>
-      </div>
-    )
-  }
-
   const staff = schedule?.staff ?? []
 
   // T-29 fix: KTV đủ điều kiện cho ĐÚNG giờ đang chọn trong sheet đặt lịch —
   // giao của staff hiển thị với staff_ids của slot khớp createTime (engine đã
   // lọc skill + còn chỗ). null = chưa chọn gói (chưa gọi availability).
+  // QUAN TRỌNG: hook này + useEffect reset ngay dưới PHẢI đứng TRƯỚC mọi
+  // early-return loading/error — nếu không số hook đổi giữa các render →
+  // "Rendered more hooks than during the previous render" (crash timeline).
   const createEligibleStaff = useMemo<{ id: number; name: string }[] | null>(() => {
     if (createSlots === null) return null
     const hm = parseHm(createTime)
@@ -739,6 +723,27 @@ export default function TimelinePage() {
       setCreateStaffId(null)
     }
   }, [createEligibleStaff, createStaffId])
+
+  // Early-return states — SAU mọi hook (React yêu cầu số hook ổn định). AdminNav
+  // do AdminShell render ở ngoài, không lặp ở đây.
+  if (loading && schedule === null) {
+    return (
+      <div className="ccf-tl-page">
+        <p>Đang tải lịch...</p>
+      </div>
+    )
+  }
+
+  if (error && schedule === null) {
+    return (
+      <div className="ccf-tl-page">
+        <Notice tone="warn">{error}</Notice>
+        <Button variant="ghost" onClick={loadAll}>
+          Thử lại
+        </Button>
+      </div>
+    )
+  }
   const { firstHour, lastHour } = computeHourRange(staff)
   const hours: number[] = []
   for (let h = firstHour; h <= lastHour; h++) hours.push(h)
