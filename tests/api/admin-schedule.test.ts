@@ -123,6 +123,13 @@ async function getSchedule(date: string | undefined): Promise<{ status: number; 
   return { status: res.status, body: await res.json() }
 }
 
+/** T-31: chế độ range `?from=&to=` trên CÙNG route — dùng cho week view. */
+async function getScheduleRange(from: string, to: string): Promise<{ status: number; body: any }> {
+  const url = `https://example.com/api/admin/schedule?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  const res = await exports.default.fetch(url, { headers: { cookie: await adminCookieHeader() } })
+  return { status: res.status, body: await res.json() }
+}
+
 /**
  * Ngày dùng cho test: N ngày TỚI, tính động theo giờ spa.
  * Ngày cứng là bom hẹn giờ — test xanh hôm nay, đỏ vào một ngày nào đó khi
@@ -308,5 +315,106 @@ describe('GET /api/admin/schedule — giới hạn bound params của D1', () =>
     const withItems = body.staff.filter((s: any) => s.items.length > 0)
     expect(withItems.length).toBe(1)
     expect(withItems[0].id).toBe(ids[77])
+  })
+})
+
+// T-31: chế độ range `?from=&to=` — week view. Ngày ĐỘNG (futureDateStr),
+// không hard-code (CONVENTIONS §8).
+function addDaysStr(dateStr: string, delta: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const next = new Date(Date.UTC(y!, m! - 1, d! + delta))
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${next.getUTCFullYear()}-${pad(next.getUTCMonth() + 1)}-${pad(next.getUTCDate())}`
+}
+
+describe('GET /api/admin/schedule?from=&to= — chế độ range (T-31 week view)', () => {
+  beforeEach(wipe)
+
+  const FROM = futureDateStr(10)
+  const TO = addDaysStr(FROM, 6) // đúng 7 ngày (inclusive)
+
+  it('trả đúng 7 ngày liên tiếp, mỗi ngày kèm mọi KTV active', async () => {
+    const skill = await insertSkill('Massage')
+    await insertStaff('Lan', [skill])
+
+    const { status, body } = await getScheduleRange(FROM, TO)
+    expect(status).toBe(200)
+    expect(body.from).toBe(FROM)
+    expect(body.to).toBe(TO)
+    expect(body.days.length).toBe(7)
+    expect(body.days.map((d: any) => d.date)).toEqual([
+      FROM,
+      addDaysStr(FROM, 1),
+      addDaysStr(FROM, 2),
+      addDaysStr(FROM, 3),
+      addDaysStr(FROM, 4),
+      addDaysStr(FROM, 5),
+      TO,
+    ])
+    for (const day of body.days) {
+      expect(day.staff.find((s: any) => s.name === 'Lan')).toBeDefined()
+    }
+  })
+
+  it('ngày có lịch và ngày trống trả khác nhau — item chỉ nằm đúng ngày của nó', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    const variant = await insertVariant(skill, { duration: 60, buffer: 10 })
+    const day3 = addDaysStr(FROM, 3)
+    const { start: day3Start } = localDayBounds(day3)
+    const itemId = await seedBooking(lan, variant, day3Start + 3600, 60, 10)
+
+    const { body } = await getScheduleRange(FROM, TO)
+    const busyDay = body.days.find((d: any) => d.date === day3)
+    const emptyDay = body.days.find((d: any) => d.date === FROM)
+
+    const busyLan = busyDay.staff.find((s: any) => s.id === lan)
+    const emptyLan = emptyDay.staff.find((s: any) => s.id === lan)
+    expect(busyLan.items.map((i: any) => i.id)).toContain(itemId)
+    expect(emptyLan.items).toEqual([])
+  })
+
+  it('range hơn 7 ngày bị từ chối 422 VALIDATION', async () => {
+    const tooFar = addDaysStr(FROM, 8)
+    const { status, body } = await getScheduleRange(FROM, tooFar)
+    expect(status).toBe(422)
+    expect(body.error.code).toBe('VALIDATION')
+  })
+
+  it('to trước from bị từ chối 422 VALIDATION', async () => {
+    const { status, body } = await getScheduleRange(TO, FROM)
+    expect(status).toBe(422)
+    expect(body.error.code).toBe('VALIDATION')
+  })
+
+  it('from/to sai định dạng trả 422 VALIDATION', async () => {
+    const { status, body } = await getScheduleRange('10-08-2026', TO)
+    expect(status).toBe(422)
+    expect(body.error.code).toBe('VALIDATION')
+  })
+
+  it('chỉ truyền from (thiếu to) trả 422 VALIDATION', async () => {
+    const res = await exports.default.fetch(
+      `https://example.com/api/admin/schedule?from=${encodeURIComponent(FROM)}`,
+      { headers: { cookie: await adminCookieHeader() } },
+    )
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect((body as any).error.code).toBe('VALIDATION')
+  })
+
+  it('booking vắt qua nửa đêm ở đầu range vẫn xuất hiện đúng ngày nó chiếm chỗ', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    const variant = await insertVariant(skill, { duration: 60, buffer: 30 })
+    const { start: fromStart } = localDayBounds(FROM)
+    // Bắt đầu 23:30 hôm trước FROM (start_at < fromStart), block kéo dài qua fromStart.
+    const startAt = fromStart - 30 * 60
+    const itemId = await seedBooking(lan, variant, startAt, 60, 30)
+
+    const { body } = await getScheduleRange(FROM, TO)
+    const firstDay = body.days.find((d: any) => d.date === FROM)
+    const lanEntry = firstDay.staff.find((s: any) => s.id === lan)
+    expect(lanEntry.items.map((i: any) => i.id)).toContain(itemId)
   })
 })
