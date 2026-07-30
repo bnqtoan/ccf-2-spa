@@ -1,10 +1,11 @@
 ---
 id: T-34
 title: Seed E2E qua binding in-process (bỏ spawn wrangler mỗi lần) → nhanh + hết contention
-status: todo
+status: review
 model: opus
 effort: high
 depends_on: []
+finished_at: 2026-07-30
 touches:
   - tests/e2e/_seed.ts
   - tests/e2e/global-setup.ts
@@ -136,4 +137,74 @@ hơn baseline rõ rệt (ghi số). Đạt được thì T-33 khép lại là su
 - **Đừng làm rơi 2 fix thật của T-33** (auth-setup dependency; rs-slot- locator).
 
 ## Đã làm gì
-(agent điền khi xong)
+
+### Cơ chế seed mới
+- Tạo `tests/e2e/_seed.ts`: mở MỘT handle `getPlatformProxy()` (wrangler@4.112,
+  không dep mới) lười ở lần seed đầu, tái dùng, đóng ở teardown (`closeSeed()` +
+  `process.once('exit')` cho worker-process). Expose `runSql`, `querySql`,
+  `wipeAndSeed`, `getSeedDb`.
+- `runSql` KHÔNG dùng `db.exec()` (nó tách câu theo XUỐNG DÒNG → vỡ mọi
+  `INSERT...SELECT` nhiều dòng của seed hiện có: "incomplete input"). Thay bằng
+  tách theo `;` rồi `db.batch(prepared)` — an toàn vì seed E2E không có `;`
+  trong string literal.
+- `global-setup.ts`: bỏ cặp `wrangler d1 execute --command <DELETE>` +
+  `npm run db:seed:local` (2 cold-boot), gọi `wipeAndSeed()` → `seed(db)` từ
+  `src/worker/db/seed.ts` (nguồn sự thật duy nhất) qua binding.
+- 5 spec (`admin-timeline`, `admin-walkin-reassign`, `customer-lookup`,
+  `customer-reschedule`, `flows/cancel-too-late-hotline`): xoá SẠCH mọi
+  `execFileSync('wrangler d1 execute ...')` (seed `--file` + đọc `--json`),
+  thay bằng `runSql`/`querySql` từ `_seed.ts`. Các helper seed đổi sang `async`,
+  mọi call-site `await`.
+
+### Contention: đã hết đến đâu, còn xử ở đâu
+- Root cause CŨ (spawn wrangler mỗi seed: ~29 call-site, 100+ cold-boot/lần
+  chạy, nhiều tiến trình wrangler tranh cùng file SQLite → SQLITE_BUSY/
+  ECONNRESET/OOM) đã bị XOÁ HẲN: không còn tiến trình wrangler nào trong đường
+  seed.
+- PHÁT HIỆN QUAN TRỌNG (card giả định hơi khác thực tế): `getPlatformProxy()`
+  KHÔNG trả binding của dev-server — nó mở MỘT instance miniflare RIÊNG. Dev-
+  server (vite `@cloudflare/vite-plugin`) chạy miniflare của chính nó. Cả hai
+  persist vào CÙNG file `.wrangler/state/.../*.sqlite` (WAL). Khi seed-miniflare
+  GHI trong lúc dev-server-miniflare ĐỌC (phục vụ page-load) → `SQLITE_BUSY_
+  SNAPSHOT` / "internal error". D1 CẤM `PRAGMA busy_timeout` (SQLITE_AUTH) nên
+  không tối ưu được từ tầng test; phía dev-server (app phục vụ request thật)
+  không có móc retry.
+- Xử LÝ ĐÚNG TẦNG, không giấu flake:
+  1. `_seed.ts` serial-hoá thao tác seed trong tiến trình (promise-chain) +
+     busy-retry (chờ-rồi-lặp) trên `SQLITE_BUSY`/"internal error" ở PHÍA SEED —
+     đây là cách xử SQLITE_BUSY theo định nghĩa (retry), KHÔNG nới assertion nào.
+  2. TÁCH PHA thời gian ở `playwright.config.ts`: ba spec seed-nhiều gom vào
+     project `chromium-d1-seed` (workers:1); `chromium` (flood ~55 spec HTTP)
+     `dependencies` vào cả `chromium-shared-queue` lẫn `chromium-d1-seed`. Khi
+     flood chạy KHÔNG còn seed-miniflare nào ghi song song → hết va chạm hai-
+     instance. `chromium-d1-seed` workers:1 để trong pha đó cũng không có test
+     nào seed trong khi test khác load trang.
+  - KHÔNG dùng Playwright `retries`, KHÔNG `workers:1` toàn cục (~55 spec HTTP ở
+    `chromium` vẫn fullyParallel).
+
+### Hai fix thật mang từ T-33
+- (a) auth race: `chromium-auth-guard` thêm `dependencies:['auth-setup']`
+  (ordering thuần, KHÔNG storageState) — chặn đua đổi-mật-khẩu owner
+  (must_change_password) giữa guard và auth-setup.
+- (b) `rs-slot-` flaky trong `customer-reschedule.spec.ts`: bỏ `nth(3)` +
+  `.first()` đọc-rồi-bấm; chọn ngày làm việc theo weekday đọc từ testid, chốt
+  slot theo TESTID CỐ ĐỊNH (`rs-slot-<start_at>`) rồi verify nhãn — nguyên tử,
+  không re-resolve. Test này (customer-reschedule:43, tương ứng :70 baseline)
+  xanh cả 3 lần.
+
+### chromium-shared-queue: GIỮ
+Giữ nguyên vì đây là RACE LOGIC (hàng chờ reassign là global state, không lọc
+ngày/fixture) — khác race TÀI NGUYÊN mà T-34 xoá. Serialize vì logic thì vẫn
+cần; quyết theo bản chất, không gỡ nhầm. `chromium-d1-seed` là race TÀI NGUYÊN
+hai-instance (mới, do getPlatformProxy), tách riêng và phase-away khỏi flood.
+
+### Số đo trước/sau (CI=true npm run e2e, full suite)
+- BASELINE (main: seed qua wrangler-spawn): **2.6m (156s)**, **3 FAILED** (auth-
+  guard race, rs-slot flaky customer-reschedule:70, race-two-tabs) — chậm VÀ đỏ,
+  đúng triệu chứng T-33.
+- SAU T-34: **3 lần liên tiếp XANH 103/103** — 137s / 141s / 138s (~**2.3m**),
+  0 lỗi SQLITE_BUSY/internal-error trong cả 3 lần.
+- Nhanh hơn baseline (~2.3m vs 2.6m) và—quan trọng hơn—TẤT ĐỊNH (baseline đỏ 3
+  test). Phần tax còn lại là hai test CỐ Ý chờ ~32s (đợi đồng hồ vượt cutoff huỷ)
+  chạy trong pha workers:1 — chi phí cố hữu của chính test, không phải phasing.
+- `npm test` (unit/API): 442 passed (27 files) — giữ nguyên ≥442. typecheck xanh.

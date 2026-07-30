@@ -1,49 +1,8 @@
-import { execFileSync } from 'node:child_process'
-import { writeFileSync, unlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
-
-// Cùng cơ chế seed trực tiếp D1 local mà tests/e2e/admin-timeline.spec.ts đã
-// dùng (T-12) — INSERT thẳng qua `wrangler d1 execute --local`, không bao giờ
-// DELETE (nhiều agent/test chạy trên cùng D1 local).
-const REPO_ROOT = new URL('../../', import.meta.url).pathname
-
-function runSql(statements: string): void {
-  const tmpFile = join(
-    tmpdir(),
-    `ccf-2-spa-e2e-walkin-reassign-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`,
-  )
-  writeFileSync(tmpFile, statements, 'utf8')
-  try {
-    const maxAttempts = 5
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', `--file=${tmpFile}`], {
-          cwd: REPO_ROOT,
-          stdio: 'pipe',
-        })
-        return
-      } catch (err) {
-        const busy = String((err as { stderr?: Buffer })?.stderr ?? err).includes('SQLITE_BUSY')
-        if (!busy || attempt === maxAttempts) throw err
-        execFileSync('sleep', [String(0.3 * attempt)])
-      }
-    }
-  } finally {
-    unlinkSync(tmpFile)
-  }
-}
-
-function querySql<T>(sql: string): T[] {
-  const out = execFileSync(
-    'npx',
-    ['wrangler', 'd1', 'execute', 'DB', '--local', '--json', '--command', sql],
-    { cwd: REPO_ROOT, stdio: 'pipe' },
-  ).toString()
-  const parsed = JSON.parse(out) as [{ results: T[] }]
-  return parsed[0]?.results ?? []
-}
+// T-34 — seed + đọc D1 local qua binding in-process (getPlatformProxy) thay cho
+// spawn `wrangler d1 execute`. Chỉ INSERT thêm (không DELETE), global-setup lo
+// wipe+seed. Xem tests/e2e/_seed.ts.
+import { runSql, querySql } from './_seed.ts'
 
 /**
  * available-now / walk-ins dùng đồng hồ SERVER THẬT (`now = Date.now()`), khác
@@ -106,7 +65,7 @@ function esc(s: string): string {
 }
 
 /** Seed skill + service + variant + KTV (3 free riêng biệt/busy/no-skill), ca 24h mọi ngày. */
-function seedBaseFixtures(): void {
+async function seedBaseFixtures(): Promise<void> {
   const stmts = [
     `INSERT INTO skills (name) VALUES ('${esc(SKILL_NAME)}');`,
     `INSERT INTO services (name, skill_id, body_zone, active)
@@ -134,15 +93,15 @@ function seedBaseFixtures(): void {
       )
     }
   }
-  runSql(stmts.join('\n'))
+  await runSql(stmts.join('\n'))
 }
 
 /** Khoá STAFF_BUSY bận NGAY BÂY GIỜ bằng một booking_item thật chồng giờ hiện tại. */
-function seedBusyRightNow(): void {
+async function seedBusyRightNow(): Promise<void> {
   const now = SERVER_NOW_SEC // cùng mốc với X-Test-Now gửi cho server
   const startAt = now - 300 // bắt đầu 5' trước, còn đang chạy
   const custName = `E2E WR BusyBlocker ${TAG}`
-  runSql(`
+  await runSql(`
 INSERT INTO customers (name, phone) VALUES ('${esc(custName)}', NULL);
 INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
   SELECT (SELECT id FROM customers WHERE name = '${esc(custName)}'),
@@ -157,12 +116,12 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
 }
 
 /** Seed một booking_item mồ côi NGAY BÂY GIỜ (bị time_off đè lên), gán cho `ownerName`. */
-function seedOrphanNow(ownerName: string, customerSuffix: string, phone: string | null): number {
+async function seedOrphanNow(ownerName: string, customerSuffix: string, phone: string | null): Promise<number> {
   const now = SERVER_NOW_SEC // cùng mốc với X-Test-Now gửi cho server
   const startAt = now - 120
   const custName = `E2E WR ${customerSuffix} ${TAG}`
   const phoneVal = phone === null ? 'NULL' : `'${esc(phone)}'`
-  runSql(`
+  await runSql(`
 INSERT INTO customers (name, phone) VALUES ('${esc(custName)}', ${phoneVal});
 INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
   SELECT (SELECT id FROM customers WHERE name = '${esc(custName)}'),
@@ -177,7 +136,7 @@ INSERT INTO time_off (staff_id, start_at, end_at, reason)
   SELECT id, ${startAt - 3600}, ${startAt + 3600 * 3}, 'E2E WR nghỉ đột xuất'
   FROM staff WHERE name = '${esc(ownerName)}';
 `)
-  const rows = querySql<{ id: number }>(
+  const rows = await querySql<{ id: number }>(
     `SELECT bi.id AS id FROM booking_items bi JOIN appointments a ON a.id = bi.appointment_id JOIN customers c ON c.id = a.customer_id WHERE c.name = '${esc(custName)}'`,
   )
   if (rows.length === 0) throw new Error(`Seed thất bại: không tìm thấy booking_item vừa tạo cho ${custName}`)
@@ -187,8 +146,8 @@ INSERT INTO time_off (staff_id, start_at, end_at, reason)
 /** Dọn mọi orphan còn sót từ lần chạy trước của CHÍNH FILE NÀY (tiền tố 'E2E WR')
  * bằng cách huỷ hợp lệ (không xoá dòng — CONVENTIONS §3), để hàng chờ rỗng
  * là kiểm chứng được tất định. */
-function cancelAllPriorEwrOrphans(): void {
-  runSql(`
+async function cancelAllPriorEwrOrphans(): Promise<void> {
+  await runSql(`
 UPDATE booking_items SET status = 'cancelled', cancelled_at = ${Math.floor(Date.now() / 1000)}
 WHERE status IN ('booked','in_service')
   AND appointment_id IN (
@@ -205,8 +164,8 @@ WHERE status IN ('booked','in_service')
  * định, vì bất kỳ orphan nào còn sót từ lần chạy khác (kể cả của T-12) cũng
  * khiến EmptyState không bao giờ xuất hiện.
  */
-function cancelEntireGlobalQueue(): void {
-  runSql(`
+async function cancelEntireGlobalQueue(): Promise<void> {
+  await runSql(`
 UPDATE booking_items SET status = 'cancelled', cancelled_at = ${Math.floor(Date.now() / 1000)}
 WHERE status IN ('booked','in_service')
   AND EXISTS (
@@ -223,13 +182,17 @@ async function openWalkInSheet(page: Page): Promise<void> {
 }
 
 test.describe('Admin — khách vãng lai + hàng chờ xếp lại', () => {
-  // Serial: mỗi test ghi thẳng D1 local qua `wrangler d1 execute --local`,
-  // giống lý do ở admin-timeline.spec.ts/customer-lookup.spec.ts.
+  // Serial vì RACE LOGIC, KHÔNG phải race tài nguyên (T-34): (1) các test đọc/
+  // ghi hàng chờ reassign TOÀN CỤC (không lọc theo ngày/fixture); (2) vài test
+  // tạm ẩn KTV (UPDATE staff active=0) rồi restore trong finally — chạy đan xen
+  // thì test khác thấy KTV bị ẩn giữa chừng. (Race tài nguyên SQLITE_BUSY do
+  // spawn wrangler đã bị T-34 xoá — nay seed qua binding in-process.) File này
+  // ở project chromium-shared-queue (workers:1) cũng vì lý do LOGIC toàn-cục này.
   test.describe.configure({ mode: 'serial' })
 
-  test.beforeAll(() => {
-    seedBaseFixtures()
-    cancelAllPriorEwrOrphans()
+  test.beforeAll(async () => {
+    await seedBaseFixtures()
+    await cancelAllPriorEwrOrphans()
   })
 
   // Cố định "now" của server ở 12:00 TRƯA HÔM NAY (giờ VN) cho mọi request của
@@ -304,9 +267,9 @@ test.describe('Admin — khách vãng lai + hàng chờ xếp lại', () => {
     // seedBusyRightNow(), STAFF_NO_SKILL thiếu skill — ẩn nốt các free-staff
     // bằng UPDATE active=0 hợp lệ (không xoá dòng), restore lại NGAY trong
     // cùng test (mode serial, không phá test chạy sau).
-    seedBusyRightNow()
+    await seedBusyRightNow()
     for (const n of STAFF_FREE_POOL) {
-      runSql(`UPDATE staff SET active = 0 WHERE name = '${esc(n)}';`)
+      await runSql(`UPDATE staff SET active = 0 WHERE name = '${esc(n)}';`)
     }
 
     try {
@@ -329,7 +292,7 @@ test.describe('Admin — khách vãng lai + hàng chờ xếp lại', () => {
       await expect(page.getByTestId('walkin-submit')).toBeDisabled()
     } finally {
       for (const n of STAFF_FREE_POOL) {
-        runSql(`UPDATE staff SET active = 1 WHERE name = '${esc(n)}';`)
+        await runSql(`UPDATE staff SET active = 1 WHERE name = '${esc(n)}';`)
       }
     }
   })
@@ -352,7 +315,7 @@ test.describe('Admin — khách vãng lai + hàng chờ xếp lại', () => {
   })
 
   test('sheet chuyển KTV hiện đúng lý do loại của từng KTV không đủ điều kiện', async ({ page }) => {
-    const itemId = seedOrphanNow(STAFF_BUSY, 'ReasonGeneral', '0911000001')
+    const itemId = await seedOrphanNow(STAFF_BUSY, 'ReasonGeneral', '0911000001')
 
     await page.goto('/admin/reassign')
     await page.getByTestId(`queue-reassign-${itemId}`).click()
@@ -368,7 +331,7 @@ test.describe('Admin — khách vãng lai + hàng chờ xếp lại', () => {
   test('KTV thiếu kỹ năng trong sheet chuyển KTV hiện đúng lý do thiếu kỹ năng, không phải lý do chung chung', async ({
     page,
   }) => {
-    const itemId = seedOrphanNow(STAFF_BUSY, 'ReasonSkill', '0911000002')
+    const itemId = await seedOrphanNow(STAFF_BUSY, 'ReasonSkill', '0911000002')
 
     await page.goto('/admin/reassign')
     await page.getByTestId(`queue-reassign-${itemId}`).click()
@@ -379,16 +342,18 @@ test.describe('Admin — khách vãng lai + hàng chờ xếp lại', () => {
   })
 
   test('KTV đang bận giờ đó trong sheet chuyển KTV hiện đúng lý do đang bận', async ({ page }) => {
-    const itemId = seedOrphanNow(STAFF_BUSY, 'ReasonBusy', '0911000003')
+    const itemId = await seedOrphanNow(STAFF_BUSY, 'ReasonBusy', '0911000003')
 
     // STAFF_FREE_BLOCKTARGET có skill nhưng mặc định đang rảnh -> eligible
     // true. Để kiểm đúng lý do "đang bận" (không phải "thiếu skill"), khoá
     // nó bận chồng giờ với CHÍNH item mồ côi này bằng một booking khác.
-    const item = querySql<{ start_at: number; block_end_at: number }>(
-      `SELECT start_at, block_end_at FROM booking_items WHERE id = ${itemId}`,
+    const item = (
+      await querySql<{ start_at: number; block_end_at: number }>(
+        `SELECT start_at, block_end_at FROM booking_items WHERE id = ${itemId}`,
+      )
     )[0]!
     const custName = `E2E WR BusyForFree ${TAG}-${itemId}`
-    runSql(`
+    await runSql(`
 INSERT INTO customers (name, phone) VALUES ('${esc(custName)}', NULL);
 INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
   SELECT (SELECT id FROM customers WHERE name = '${esc(custName)}'),
@@ -420,10 +385,10 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
     // điều kiện" đúng thật (không phải trùng hợp thời gian), tạm ẩn toàn bộ
     // KTV có skill này (mọi free-staff của pool) bằng UPDATE active=0 hợp lệ
     // (không xoá dòng), restore lại ngay sau khi kiểm xong.
-    const itemId = seedOrphanNow(STAFF_BUSY, 'NoneEligible', '0911999888')
+    const itemId = await seedOrphanNow(STAFF_BUSY, 'NoneEligible', '0911999888')
 
     for (const n of STAFF_FREE_POOL) {
-      runSql(`UPDATE staff SET active = 0 WHERE name = '${esc(n)}';`)
+      await runSql(`UPDATE staff SET active = 0 WHERE name = '${esc(n)}';`)
     }
 
     try {
@@ -439,13 +404,13 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
       await expect(telLink).toHaveAttribute('href', 'tel:0911999888')
     } finally {
       for (const n of STAFF_FREE_POOL) {
-        runSql(`UPDATE staff SET active = 1 WHERE name = '${esc(n)}';`)
+        await runSql(`UPDATE staff SET active = 1 WHERE name = '${esc(n)}';`)
       }
     }
   })
 
   test('chuyển KTV thành công thì item rời khỏi hàng chờ xếp lại ngay lập tức', async ({ page }) => {
-    const itemId = seedOrphanNow(STAFF_BUSY, 'ReassignOk', '0911000099')
+    const itemId = await seedOrphanNow(STAFF_BUSY, 'ReassignOk', '0911000099')
     // STAFF_FREE_REASSIGN chưa từng bị chiếm bởi test nào khác trong file này
     // -> đảm bảo thật sự rảnh cho item này (không có blocker chồng giờ).
 
@@ -465,7 +430,7 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
   })
 
   test('huỷ một item trong hàng chờ thì item đó biến mất khỏi hàng chờ', async ({ page }) => {
-    const itemId = seedOrphanNow(STAFF_BUSY, 'CancelOk', '0911000088')
+    const itemId = await seedOrphanNow(STAFF_BUSY, 'CancelOk', '0911000088')
 
     await page.goto('/admin/reassign')
     await expect(page.getByTestId(`queue-item-${itemId}`)).toBeVisible()
@@ -479,7 +444,7 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
   test('hàng chờ rỗng hiện trạng thái "không còn lịch nào cần xếp lại"', async ({ page }) => {
     // Hàng chờ TOÀN CỤC (không lọc ngày) — dọn sạch MỌI orphan còn sót, kể cả
     // của các bộ test khác (T-12), bằng huỷ hợp lệ (không xoá dòng).
-    cancelEntireGlobalQueue()
+    await cancelEntireGlobalQueue()
 
     await page.goto('/admin/reassign')
     await expect(page.getByText('Không còn lịch nào cần xếp lại.')).toBeVisible()
@@ -487,7 +452,7 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
 })
 
 async function staffIdByName(name: string): Promise<string> {
-  const rows = querySql<{ id: number }>(`SELECT id FROM staff WHERE name = '${esc(name)}'`)
+  const rows = await querySql<{ id: number }>(`SELECT id FROM staff WHERE name = '${esc(name)}'`)
   if (rows.length === 0) throw new Error(`Không tìm thấy KTV ${name}`)
   return String(rows[0]!.id)
 }

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { wipeAndSeed, closeSeed } from './_seed.ts'
 
 /**
  * Dọn D1 local về trạng thái seed sạch TRƯỚC mỗi lần chạy E2E.
@@ -18,26 +18,14 @@ import { execFileSync } from 'node:child_process'
  * Triệu chứng đặc trưng: từng file chạy riêng thì xanh, chạy chung thì đỏ.
  * Dọn ở đây một lần cho cả lần chạy, thay vì bắt từng spec tự dọn — mỗi spec
  * chỉ biết dữ liệu của chính nó, không biết rác của spec khác.
+ *
+ * T-34 — trước đây wipe+seed chạy qua `wrangler d1 execute --command <DELETE>`
+ * + `npm run db:seed:local` (hai lần spawn cold-boot wrangler). Nay ghi thẳng
+ * qua binding in-process (`wipeAndSeed()` gọi `seed(db)` — cùng dataset), không
+ * spawn subprocess. Đóng handle của process CHÍNH ngay sau khi seed xong: các
+ * worker-process của spec tự mở handle riêng của chúng.
  */
-export default function globalSetup(): void {
-  const wipe = [
-    'users', // T-22 — xoá TRƯỚC staff (users.staff_id REFERENCES staff, FK RESTRICT)
-    'booking_items',
-    'appointments',
-    'time_off',
-    'customers',
-    'work_shifts',
-    'staff_skills',
-    'service_variants',
-    'services',
-    'staff',
-    'skills',
-  ]
-    .map((t) => `DELETE FROM ${t};`)
-    .join(' ')
-
-  execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', '--command', wipe], {
-    stdio: 'ignore',
-  })
-  execFileSync('npm', ['run', 'db:seed:local'], { stdio: 'ignore' })
+export default async function globalSetup(): Promise<void> {
+  await wipeAndSeed()
+  await closeSeed()
 }
