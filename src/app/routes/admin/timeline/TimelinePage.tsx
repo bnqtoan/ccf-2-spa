@@ -639,7 +639,15 @@ export default function TimelinePage() {
     setCreateSlotsLoading(true)
     getAvailability(createVariantId, date)
       .then((rows) => {
-        if (!cancelled) setCreateSlots(rows)
+        if (cancelled) return
+        setCreateSlots(rows)
+        // Mặc định chọn slot đầu nếu giờ hiện tại không nằm trong slot còn trống
+        // (tránh trạng thái "đã prefill 11:00 nhưng 11:00 đã qua → rỗng").
+        const first = rows[0]
+        const times = new Set(rows.map((r) => formatHm(r.start_at)))
+        if (first && !times.has(createTime)) {
+          setCreateTime(formatHm(first.start_at))
+        }
       })
       .catch(() => {
         if (!cancelled) setCreateSlots(null)
@@ -698,36 +706,25 @@ export default function TimelinePage() {
 
   const staff = schedule?.staff ?? []
 
-  // T-29 fix: KTV trong sheet đặt lịch.
-  // - CHƯA chọn gói: hiện TẤT CẢ staff (để click ô trống prefill được KTV của
-  //   cột đó ngay — "ý định", giờ đó cột đó).
-  // - ĐÃ chọn gói: LỌC theo engine availability (skill + còn chỗ đúng giờ). Nếu
-  //   KTV đã prefill vẫn đủ điều kiện thì giữ; không thì bỏ chọn + hiện notice.
-  // `createFiltering` = đã có gói ⇒ availability đã (đang) nạp.
-  const createFiltering = createVariantId !== null
-  // QUAN TRỌNG: các hook dưới PHẢI đứng TRƯỚC mọi early-return loading/error —
-  // nếu không số hook đổi giữa các render → "Rendered more hooks…" (crash).
+  // KTV còn trống vào GIỜ (slot) đang chọn — giao của staff hiển thị với
+  // staff_ids của slot khớp createTime. Sheet đặt lịch cho user chọn slot có
+  // thật (từ availability) nên slot luôn có ≥1 người → không còn "không có ai".
+  // QUAN TRỌNG: hook này PHẢI đứng TRƯỚC mọi early-return (số hook ổn định).
   const createEligibleStaff = useMemo<{ id: number; name: string }[]>(() => {
     if (createSlots === null) return []
-    const hm = parseHm(createTime)
-    if (hm === null) return []
-    const wantMin = hm.hh * 60 + hm.mm
-    const slot = createSlots.find((s) => minutesOfLocalDay(s.start_at) === wantMin)
+    const slot = createSlots.find((s) => formatHm(s.start_at) === createTime)
     if (!slot) return []
     const ids = new Set(slot.staff_ids)
     return staff.filter((s) => ids.has(s.id))
   }, [createSlots, createTime, staff])
-  // Nguồn cho dropdown: tất cả staff khi chưa lọc, danh sách đủ-ĐK khi đã lọc.
-  const createStaffOptions = createFiltering ? createEligibleStaff : staff
 
-  // Khi ĐANG lọc (đã chọn gói) mà KTV đang chọn không còn đủ điều kiện → bỏ chọn.
-  // KHÔNG bỏ khi chưa lọc (giữ KTV prefill từ click ô trống).
+  // KTV đang chọn không phục vụ được slot đang chọn → bỏ chọn.
   useEffect(() => {
-    if (!createFiltering || createStaffId === null || createSlots === null) return
+    if (createStaffId === null || createSlots === null) return
     if (!createEligibleStaff.some((s) => s.id === createStaffId)) {
       setCreateStaffId(null)
     }
-  }, [createFiltering, createEligibleStaff, createStaffId, createSlots])
+  }, [createEligibleStaff, createStaffId, createSlots])
 
   // Early-return states — SAU mọi hook (React yêu cầu số hook ổn định). AdminNav
   // do AdminShell render ở ngoài, không lặp ở đây.
@@ -1566,41 +1563,60 @@ export default function TimelinePage() {
             })()}
 
           <div className="ccf-tl-section">Giờ + kỹ thuật viên · {formatDateNav(date, todayStr)}</div>
-          <Field
-            label="Giờ bắt đầu"
-            type="time"
-            data-testid="create-booking-time"
-            value={createTime}
-            onChange={(e) => setCreateTime(e.target.value)}
-          />
-          <Field
-            as="select"
-            label={
-              createFiltering
-                ? 'Kỹ thuật viên (chỉ hiện người đủ kỹ năng + còn trống giờ này)'
-                : 'Kỹ thuật viên'
-            }
-            data-testid="create-booking-staff-select"
-            value={createStaffId ?? ''}
-            onChange={(e) => setCreateStaffId(e.target.value === '' ? null : Number(e.target.value))}
-          >
-            <option value="">
-              {createFiltering && createSlotsLoading ? '— Đang tìm người phù hợp… —' : '— Chọn kỹ thuật viên —'}
-            </option>
-            {createStaffOptions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Field>
-          {createFiltering &&
-            !createSlotsLoading &&
-            createSlots !== null &&
-            createEligibleStaff.length === 0 && (
-              <Notice tone="warn" style={{ marginTop: 8 }} data-testid="create-booking-no-staff">
-                Không có kỹ thuật viên nào đủ kỹ năng và còn trống vào {createTime}. Chọn giờ khác.
-              </Notice>
-            )}
+          {createVariantId === null ? (
+            <p className="ccf-tl-hint" data-testid="create-booking-pick-service-first">
+              Chọn dịch vụ + gói để xem giờ còn trống.
+            </p>
+          ) : createSlotsLoading ? (
+            <p className="ccf-tl-hint">Đang tìm giờ trống…</p>
+          ) : (createSlots?.length ?? 0) === 0 ? (
+            <Notice tone="warn" style={{ marginTop: 8 }} data-testid="create-booking-no-slots">
+              Không còn giờ trống cho dịch vụ này trong ngày {formatDateNav(date, todayStr)}. Chọn ngày khác.
+            </Notice>
+          ) : (
+            <>
+              {/* Chỉ hiện GIỜ CÒN TRỐNG thật (engine đã lọc quá-khứ/ca/kỹ-năng) →
+                  không thể chọn giờ chết, hết cảnh báo "không có ai". */}
+              <div className="ccf-tl-label">Giờ còn trống</div>
+              <div className="ccf-tl-slots" data-testid="create-booking-slots">
+                {createSlots!.map((slot) => {
+                  const hm = formatHm(slot.start_at)
+                  const sel = createTime === hm
+                  return (
+                    <button
+                      key={slot.start_at}
+                      type="button"
+                      className={`ccf-tl-slot${sel ? ' ccf-tl-slot--sel' : ''}`}
+                      data-testid={`create-slot-${hm}`}
+                      onClick={() => {
+                        setCreateTime(hm)
+                        // Nếu KTV đang chọn không phục vụ được slot này → bỏ chọn.
+                        if (createStaffId !== null && !slot.staff_ids.includes(createStaffId)) {
+                          setCreateStaffId(null)
+                        }
+                      }}
+                    >
+                      {hm}
+                    </button>
+                  )
+                })}
+              </div>
+              <Field
+                as="select"
+                label="Kỹ thuật viên (người còn trống vào giờ đã chọn)"
+                data-testid="create-booking-staff-select"
+                value={createStaffId ?? ''}
+                onChange={(e) => setCreateStaffId(e.target.value === '' ? null : Number(e.target.value))}
+              >
+                <option value="">— Chọn kỹ thuật viên —</option>
+                {createEligibleStaff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </Field>
+            </>
+          )}
         </div>
       </Sheet>
 
