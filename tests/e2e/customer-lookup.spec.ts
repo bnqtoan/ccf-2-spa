@@ -149,25 +149,19 @@ test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
   test('khi server trả 409 CANCEL_TOO_LATE bất ngờ, giao diện chuyển sang hiện hotline thay vì hiện lỗi thô', async ({
     page,
   }) => {
-    // Test CỐ Ý chờ đồng hồ thật vượt ngưỡng cutoff (~MARGIN_SEC giây) nên nới
-    // timeout để cuộc chờ + poll gọn trong một test (như cancel-too-late-hotline).
-    test.setTimeout(90_000)
-    // Mô phỏng đúng tình huống PRD nêu: khách mở trang khi còn đủ xa (UI hiện
-    // nút Huỷ), rồi thời gian trôi qua tới lúc khách thực sự bấm — server
-    // đánh giá lại "now" tại thời điểm nhận request và thấy đã dưới cutoff.
-    //
-    // Seed cách "bây giờ" đúng 120 phút + 30 giây biên — đủ xa để
-    // canCustomerCancel (now <= startAt - 120*60) còn đúng lúc trang tải (UI
-    // hiện nút Huỷ vì hoursUntil >= 2), rồi CHỜ tới khi "now" thật của server
-    // vượt qua ranh giới startAt-120' mới bấm → server trả 409 CANCEL_TOO_LATE
-    // dù UI đã hiện nút. Biên 30s (không phải 8s) để nút Huỷ chắc chắn kịp
-    // render dưới tải song song trước khi qua ranh giới — cùng lý do cloud
-    // session đã nới ở cancel-too-late-hotline.spec.ts.
-    const MARGIN_SEC = 30
-    const booking = await seedCustomerBooking(120 + MARGIN_SEC / 60)
-    // Mốc cutoff bám theo startAt THỰC mà helper đã seed (helper tự lấy now nội
-    // bộ), không tự tính lại → không lệch vài ms giữa hai lần đọc đồng hồ.
-    const cutoffAt = booking.startAt - 120 * 60
+    // T-35 — KHÔNG còn chờ đồng hồ thật (trước đây ~32s). Tình huống PRD giữ
+    // NGUYÊN: khách mở trang khi còn đủ xa (UI hiện nút Huỷ vì hoursUntil tính
+    // theo đồng hồ TRÌNH DUYỆT), rồi lúc bấm Huỷ, "now" của SERVER đã qua mốc
+    // cutoff → 409 CANCEL_TOO_LATE. Điểm mấu chốt: đồng hồ UI và đồng hồ server
+    // TÁCH RỜI — ta đẩy riêng đồng hồ server qua header X-Test-Now (cơ chế
+    // inject clock của T-21, chỉ bật khi TEST_CLOCK=1; GET /api/bookings không
+    // đọc "now" nên nút Huỷ vẫn hiện). Không đụng mốc 120' server-side.
+    const booking = await seedCustomerBooking(180) // 3 tiếng nữa → UI hiện nút Huỷ (đồng hồ trình duyệt)
+    // Đồng hồ SERVER giả: đã qua mốc cutoff (startAt - 120') đúng 60 giây, nhưng
+    // vẫn TRƯỚC startAt → booking còn "sắp tới", chỉ là dưới ngưỡng huỷ. Khi bấm
+    // Huỷ, POST /api/bookings/:id/cancel đọc X-Test-Now này → 409 tức thời.
+    const serverNow = booking.startAt - 120 * 60 + 60
+    await page.setExtraHTTPHeaders({ 'X-Test-Now': String(serverNow) })
 
     await page.goto('/lookup')
     await page.getByTestId('lookup-phone-input').fill(booking.phone)
@@ -175,17 +169,6 @@ test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
 
     const cancelBtn = page.locator('[data-testid^="cancel-"]')
     await expect(cancelBtn).toBeVisible()
-
-    // Thay waitForTimeout(10s) cứng: chờ ĐÚNG điều kiện — "now" thật đã vượt mốc
-    // cutoff của server — rồi mới bấm. Bám mốc đã seed nên tất định, không đoán
-    // mò con số chờ. Nút Huỷ không tự ẩn theo thời gian (LookupPage tính
-    // hoursUntil lúc render, không có timer) nên vẫn bấm được sau khi chờ.
-    await expect
-      .poll(() => Math.floor(Date.now() / 1000), {
-        timeout: (MARGIN_SEC + 15) * 1000,
-        intervals: [250],
-      })
-      .toBeGreaterThan(cutoffAt + 1)
 
     page.once('dialog', (d) => d.accept())
     await cancelBtn.click()

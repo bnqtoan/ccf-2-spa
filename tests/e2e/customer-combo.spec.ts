@@ -244,20 +244,32 @@ test.describe('Luồng khách đặt combo nối tiếp (R1a)', () => {
     // Serial should have slots (super-tech). Parallel should NOT across all days.
     await page.getByTestId('combo-mode-parallel').click()
 
+    // T-35 — trước đây vòng lặp chờ MÙ 1500ms/ngày × 14 ngày (~21s) cho một slot
+    // song song KHÔNG BAO GIỜ xuất hiện (chỉ 1 KTV). Đó là toàn bộ 22.5s: không
+    // phải backend chậm, mà là ngân sách timeout đốt cho mỗi ngày. Thay bằng chờ
+    // ĐÚNG tín hiệu ĐÃ-XONG của từng ngày: sau khi getComboAvailability resolve,
+    // hoặc có slot (.ccf-bk-slot) hoặc hiện trạng thái "không đủ người"
+    // (combo-time-empty khi coverable=true & slots rỗng — đúng ca super-tech 1
+    // người; hoặc combo-parallel-uncoverable). Race hai bên → giải quyết nhanh
+    // như một lần fetch (~sub-second) thay vì 1500ms cứng. Khẳng định GIỮ NGUYÊN:
+    // duyệt MỌI ngày, không ngày nào được có slot song song.
     const dateButtons = page.locator('.ccf-bk-date')
     const count = await dateButtons.count()
+    const anySlot = page.locator('.ccf-bk-slot').first()
+    const noSlotSignal = page.getByTestId('combo-time-empty').or(page.getByTestId('combo-parallel-uncoverable'))
     let foundParallelSlot = false
     for (let i = 0; i < count; i++) {
       await dateButtons.nth(i).click()
-      await page
-        .locator('.ccf-bk-slot')
-        .first()
-        .waitFor({ state: 'visible', timeout: 1500 })
-        .then(() => {
-          foundParallelSlot = true
-        })
-        .catch(() => {})
-      if (foundParallelSlot) break
+      // Chờ trạng thái ngày này ổn định: slot xuất hiện HOẶC báo không đủ người.
+      // Một trong hai chắc chắn xảy ra sau khi fetch xong → không còn chờ mù.
+      await Promise.race([
+        anySlot.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {}),
+        noSlotSignal.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {}),
+      ])
+      if (await anySlot.isVisible().catch(() => false)) {
+        foundParallelSlot = true
+        break
+      }
     }
     expect(foundParallelSlot).toBe(false) // parallel impossible with a single tech
     // Continue stays disabled; no way to book a half/impossible parallel combo.
