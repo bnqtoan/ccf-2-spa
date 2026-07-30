@@ -47,6 +47,7 @@ interface ItemRow {
   status: string
   source: string
   customer_name: string
+  customer_phone: string | null
   service_name: string
   variant_name: string
 }
@@ -91,6 +92,7 @@ function mapItemRow(row: ItemRow) {
     status: row.status,
     source: row.source,
     customer_name: row.customer_name,
+    customer_phone: row.customer_phone,
     service_name: row.service_name,
     variant_name: row.variant_name,
   }
@@ -169,7 +171,8 @@ routes.get('/api/admin/schedule', async (c) => {
             `SELECT bi.staff_id AS staff_id, bi.id AS id, bi.appointment_id AS appointment_id,
                     bi.start_at AS start_at, bi.end_at AS end_at, bi.block_end_at AS block_end_at,
                     bi.status AS status, a.source AS source,
-                    c.name AS customer_name, s.name AS service_name, sv.name AS variant_name
+                    c.name AS customer_name, c.phone AS customer_phone,
+                    s.name AS service_name, sv.name AS variant_name
              FROM booking_items bi
              JOIN appointments a ON a.id = bi.appointment_id
              JOIN customers c ON c.id = a.customer_id
@@ -294,7 +297,8 @@ routes.get('/api/admin/schedule', async (c) => {
           `SELECT bi.staff_id AS staff_id, bi.id AS id, bi.appointment_id AS appointment_id,
                   bi.start_at AS start_at, bi.end_at AS end_at, bi.block_end_at AS block_end_at,
                   bi.status AS status, a.source AS source,
-                  c.name AS customer_name, s.name AS service_name, sv.name AS variant_name
+                  c.name AS customer_name, c.phone AS customer_phone,
+                  s.name AS service_name, sv.name AS variant_name
            FROM booking_items bi
            JOIN appointments a ON a.id = bi.appointment_id
            JOIN customers c ON c.id = a.customer_id

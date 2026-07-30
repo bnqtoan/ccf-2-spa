@@ -2,7 +2,21 @@ import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
 import { localDayBounds } from '../../src/worker/lib/time.ts'
+import { issueSessionToken, SESSION_COOKIE, type AuthUser } from '../../src/worker/lib/auth.ts'
 import { adminCookieHeader } from './_authCookie.ts'
+
+const SECRET = 'test-session-secret' // khớp vitest.config.ts miniflare.bindings
+
+/** T-32: cookie technician thuần ký bằng payload AuthUser — KHÔNG cần chèn
+ *  bảng `users`, vì `adminAuthGuard` chỉ verify chữ ký + đọc role/staffId từ
+ *  payload đã ký (xem src/worker/routes/index.ts, `app.use('/api/admin/*',
+ *  adminAuthGuard)`), không tra DB. */
+async function technicianCookieHeader(staffId: number): Promise<string> {
+  const now = Math.floor(Date.now() / 1000)
+  const user: AuthUser = { userId: 999, role: 'technician', staffId }
+  const token = await issueSessionToken(SECRET, now, 12 * 3600, user)
+  return `${SESSION_COOKIE}=${token}`
+}
 
 const db = env.DB
 
@@ -90,12 +104,13 @@ async function seedBooking(
   bufferMin: number,
   status = 'booked',
   customerName = 'Khách A',
+  customerPhone: string | null = null,
 ): Promise<number> {
   const endAt = startAt + durationMin * 60
   const blockEndAt = endAt + bufferMin * 60
   const cust = await db
-    .prepare('INSERT INTO customers (name, phone) VALUES (?, NULL) RETURNING id')
-    .bind(customerName)
+    .prepare('INSERT INTO customers (name, phone) VALUES (?, ?) RETURNING id')
+    .bind(customerName, customerPhone)
     .first<{ id: number }>()
   const appt = await db
     .prepare(
@@ -114,19 +129,26 @@ async function seedBooking(
   return item!.id
 }
 
-async function getSchedule(date: string | undefined): Promise<{ status: number; body: any }> {
+async function getSchedule(
+  date: string | undefined,
+  cookie?: string,
+): Promise<{ status: number; body: any }> {
   const url =
     date === undefined
       ? 'https://example.com/api/admin/schedule'
       : `https://example.com/api/admin/schedule?date=${encodeURIComponent(date)}`
-  const res = await exports.default.fetch(url, { headers: { cookie: await adminCookieHeader() } })
+  const res = await exports.default.fetch(url, { headers: { cookie: cookie ?? (await adminCookieHeader()) } })
   return { status: res.status, body: await res.json() }
 }
 
 /** T-31: chế độ range `?from=&to=` trên CÙNG route — dùng cho week view. */
-async function getScheduleRange(from: string, to: string): Promise<{ status: number; body: any }> {
+async function getScheduleRange(
+  from: string,
+  to: string,
+  cookie?: string,
+): Promise<{ status: number; body: any }> {
   const url = `https://example.com/api/admin/schedule?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-  const res = await exports.default.fetch(url, { headers: { cookie: await adminCookieHeader() } })
+  const res = await exports.default.fetch(url, { headers: { cookie: cookie ?? (await adminCookieHeader()) } })
   return { status: res.status, body: await res.json() }
 }
 
@@ -241,6 +263,48 @@ describe('GET /api/admin/schedule', () => {
     expect(item.variant_name).toBeDefined()
     expect(item.status).toBeDefined()
     expect(item.source).toBeDefined()
+  })
+
+  // T-32: sheet chi tiết cần SĐT để lễ tân gọi khách ngay từ lịch bình
+  // thường (trước đây chỉ hàng chờ reassign mới thấy số).
+  it('item trả kèm customer_phone khi khách có số', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    const variant = await insertVariant(skill, { duration: 60, buffer: 0 })
+    const { start: dayStart } = localDayBounds(DATE)
+    const itemId = await seedBooking(lan, variant, dayStart + 3600, 60, 0, 'booked', 'Khách A', '0909111222')
+
+    const { body } = await getSchedule(DATE)
+    const lanEntry = body.staff.find((s: any) => s.id === lan)
+    const item = lanEntry.items.find((i: any) => i.id === itemId)
+    expect(item.customer_phone).toBe('0909111222')
+  })
+
+  it('item trả customer_phone null khi khách lẻ không có số (CONVENTIONS §4)', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    const variant = await insertVariant(skill, { duration: 60, buffer: 0 })
+    const { start: dayStart } = localDayBounds(DATE)
+    const itemId = await seedBooking(lan, variant, dayStart + 3600, 60, 0, 'booked', 'Khách vãng lai', null)
+
+    const { body } = await getSchedule(DATE)
+    const lanEntry = body.staff.find((s: any) => s.id === lan)
+    const item = lanEntry.items.find((i: any) => i.id === itemId)
+    expect(item.customer_phone).toBeNull()
+  })
+
+  it('technician xem lịch CỦA MÌNH vẫn thấy customer_phone (mặc định phục vụ khách đó)', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    const variant = await insertVariant(skill, { duration: 60, buffer: 0 })
+    const { start: dayStart } = localDayBounds(DATE)
+    const itemId = await seedBooking(lan, variant, dayStart + 3600, 60, 0, 'booked', 'Khách A', '0909111222')
+
+    const { status, body } = await getSchedule(DATE, await technicianCookieHeader(lan))
+    expect(status).toBe(200)
+    const lanEntry = body.staff.find((s: any) => s.id === lan)
+    const item = lanEntry.items.find((i: any) => i.id === itemId)
+    expect(item.customer_phone).toBe('0909111222')
   })
 
   // T-25: sheet "+ Thêm dịch vụ" gọi POST /api/admin/appointments/:id/items —
@@ -401,6 +465,23 @@ describe('GET /api/admin/schedule?from=&to= — chế độ range (T-31 week vie
     expect(res.status).toBe(422)
     const body = await res.json()
     expect((body as any).error.code).toBe('VALIDATION')
+  })
+
+  // T-32: giữ hình dạng payload nhất quán giữa `?date=` và `?from=&to=` —
+  // week view không cần RENDER phone nhưng field vẫn phải có mặt trong data.
+  it('item trong chế độ range cũng kèm customer_phone (nhất quán với chế độ ngày)', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    const variant = await insertVariant(skill, { duration: 60, buffer: 10 })
+    const day3 = addDaysStr(FROM, 3)
+    const { start: day3Start } = localDayBounds(day3)
+    const itemId = await seedBooking(lan, variant, day3Start + 3600, 60, 10, 'booked', 'Khách A', '0909111222')
+
+    const { body } = await getScheduleRange(FROM, TO)
+    const busyDay = body.days.find((d: any) => d.date === day3)
+    const busyLan = busyDay.staff.find((s: any) => s.id === lan)
+    const item = busyLan.items.find((i: any) => i.id === itemId)
+    expect(item.customer_phone).toBe('0909111222')
   })
 
   it('booking vắt qua nửa đêm ở đầu range vẫn xuất hiện đúng ngày nó chiếm chỗ', async () => {
