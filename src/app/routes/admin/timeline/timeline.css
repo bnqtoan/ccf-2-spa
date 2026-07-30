@@ -78,6 +78,140 @@
   font-size: 15px;
 }
 
+/* ---------- T-31: Day/Week toggle + date picker (qbar) ---------- */
+.ccf-tl-viewtoggle {
+  display: flex;
+  border: 1.5px solid var(--line);
+  border-radius: 11px;
+  background: var(--white);
+  padding: 3px;
+  gap: 2px;
+}
+.ccf-tl-toggle-btn {
+  border: none;
+  background: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 620;
+  color: var(--ink-3);
+  cursor: pointer;
+  font-family: inherit;
+}
+.ccf-tl-toggle-btn--active {
+  background: var(--g-100);
+  color: var(--g-900);
+}
+.ccf-tl-datepick {
+  border: 1.5px solid var(--line);
+  border-radius: 11px;
+  background: var(--white);
+  padding: 0 10px;
+  height: 44px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--ink-2);
+}
+
+/* ---------- T-31: week view — 7 cột ngày, mini-summary lấp-đầy ---------- */
+.ccf-tl-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 900px) {
+  .ccf-tl-week {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+.ccf-tl-weekday {
+  border: 1.5px solid var(--line);
+  border-radius: var(--r);
+  background: var(--white);
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ccf-tl-weekday:hover {
+  border-color: var(--g-600);
+  background: var(--g-50);
+}
+.ccf-tl-weekday--today {
+  border-color: var(--g-600);
+  border-width: 2px;
+}
+.ccf-tl-weekday-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ccf-tl-weekday-label {
+  font-weight: 660;
+  font-size: 13.5px;
+}
+.ccf-tl-weekday-todaytag {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--g-600);
+}
+.ccf-tl-weekday-count {
+  font-size: 13px;
+  color: var(--ink-2);
+  font-weight: 620;
+}
+.ccf-tl-weekday-empty {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.ccf-tl-weekday-orphan {
+  font-size: 12px;
+  font-weight: 660;
+  color: var(--danger);
+}
+.ccf-tl-weekday-staff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.ccf-tl-weekday-srow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.ccf-tl-weekday-sname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.ccf-tl-weekday-sbadge {
+  flex-shrink: 0;
+  min-width: 20px;
+  text-align: center;
+  border-radius: 999px;
+  background: var(--g-100);
+  color: var(--g-900);
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 1px 7px;
+}
+.ccf-tl-weekday-sbadge--free {
+  background: var(--g-50);
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.ccf-tl-weekday-sbadge--off {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 /* ---------- timeline grid (prototype dòng 262-271) ---------- */
 .ccf-tl {
   border: 1.5px solid var(--line);

@@ -780,7 +780,86 @@ WHERE status IN ('booked','in_service')
     expect(String(row.staff_id)).toBe(huongId)
     expect(row.start_at).toBe(localToEpoch(TARGET_DATE, 11, 30))
   })
+
+  // T-31: toggle Day/Week + chọn ngày + "Hôm nay". Backend range đã có test
+  // API riêng (tests/api/admin-schedule.test.ts) — bốn test dưới đây chỉ kiểm
+  // THAO TÁC TRÊN UI thật.
+  test('bấm toggle Tuần hiện đủ 7 cột ngày', async ({ page }) => {
+    await page.goto('/admin/timeline')
+
+    await expect(page.getByTestId('view-toggle-week')).toBeVisible()
+    await page.getByTestId('view-toggle-week').click()
+
+    const weekGrid = page.getByTestId('week-grid')
+    await expect(weekGrid).toBeVisible()
+    // `.ccf-tl-weekday` là class riêng của NÚT cột-ngày (không trùng với các
+    // testid con `week-day-count-…`/`week-day-{date}-staff-{id}` cũng có tiền
+    // tố `week-day-` — dùng class thay vì testid prefix để đếm đúng 7 cột).
+    await expect(weekGrid.locator('.ccf-tl-weekday')).toHaveCount(7)
+  })
+
+  test('ngày có lịch hiện số lịch hẹn khác với ngày trống trên week view', async ({ page }) => {
+    const seeded = seedBookingItem({
+      staffName: 'Huong',
+      serviceName: 'Massage toàn thân',
+      variantName: '60 phút',
+      hour: 14,
+      customerSuffix: 'WeekBusy',
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+    // Xác nhận lịch đã thật sự nằm trên TARGET_DATE trước khi chuyển sang tuần.
+    await expect(page.getByTestId(`booking-item-${seeded.itemId}`)).toBeVisible()
+
+    await page.getByTestId('view-toggle-week').click()
+    await expect(page.getByTestId('week-grid')).toBeVisible()
+
+    const busyDay = page.getByTestId(`week-day-${TARGET_DATE}`)
+    await expect(busyDay).toBeVisible()
+    await expect(busyDay.getByTestId(`week-day-count-${TARGET_DATE}`)).toBeVisible()
+    await expect(busyDay.getByTestId(`week-day-count-${TARGET_DATE}`)).toContainText('lịch hẹn')
+    // Ngày trống không hiện số lịch hẹn — hiện "Trống lịch".
+    await expect(busyDay.getByTestId(`week-day-empty-${TARGET_DATE}`)).toHaveCount(0)
+
+    const emptyDate = addDaysStrForTest(TARGET_DATE, 1)
+    const emptyDay = page.getByTestId(`week-day-${emptyDate}`)
+    if (await emptyDay.count() > 0) {
+      await expect(emptyDay.getByTestId(`week-day-empty-${emptyDate}`)).toBeVisible()
+      await expect(emptyDay.getByTestId(`week-day-empty-${emptyDate}`)).toContainText('Trống lịch')
+    }
+  })
+
+  test('nút "Hôm nay" từ một ngày xa đưa về đúng hôm nay', async ({ page }) => {
+    await page.goto('/admin/timeline')
+    const todayLabel = await page.getByTestId('date-current').textContent()
+
+    await goToTargetDate(page)
+    await expect(page.getByTestId('date-current')).not.toHaveText(todayLabel ?? '')
+
+    await page.getByTestId('today-button').click()
+    await expect(page.getByTestId('date-current')).toContainText('Hôm nay')
+  })
+
+  test('date picker nhảy tới ngày cụ thể → grid đúng ngày đó', async ({ page }) => {
+    await page.goto('/admin/timeline')
+
+    await page.getByTestId('date-picker').fill(TARGET_DATE)
+    // input[type=date] bắn change khi fill xong giá trị hợp lệ.
+    const [, tm, td] = TARGET_DATE.split('-').map(Number)
+    const targetLabel = `${String(td).padStart(2, '0')}/${String(tm).padStart(2, '0')}`
+    await expect(page.getByTestId('date-current')).toContainText(targetLabel)
+  })
 })
+
+/** Cộng N ngày vào "YYYY-MM-DD" — dùng riêng cho spec này (không import format.ts,
+ * ngoài touches của card T-31). */
+function addDaysStrForTest(dateStr: string, delta: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const next = new Date(Date.UTC(y!, m! - 1, d! + delta))
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${next.getUTCFullYear()}-${pad(next.getUTCMonth() + 1)}-${pad(next.getUTCDate())}`
+}
 
 /** Bấm nút "ngày sau" đủ số lần để tới TARGET_DATE (Thứ Hai tuần sau), xuất
  * phát từ "hôm nay" mà component tự khởi tạo. Tính số lần bấm bằng cách so

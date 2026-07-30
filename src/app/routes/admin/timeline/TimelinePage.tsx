@@ -15,12 +15,14 @@ import {
   getAvailability,
   getReassignQueue,
   getSchedule,
+  getScheduleRange,
   getServices,
   rescheduleBooking,
   setBookingStatus,
   type AffectedItem,
   type AvailabilitySlot,
   type ScheduleItem,
+  type ScheduleRangeDay,
   type ScheduleResponse,
   type ScheduleStaff,
   type Service,
@@ -38,6 +40,31 @@ function localDateHmToEpoch(dateStr: string, hh: number, mm: number): number {
   const m = parts[1] ?? 1
   const d = parts[2] ?? 1
   return Date.UTC(y, m - 1, d, hh, mm, 0) / 1000 - SPA_UTC_OFFSET_SEC
+}
+
+// T-31: week view — 7 ngày Thứ Hai→Chủ Nhật chứa `date` đang xem trên day view
+// (day↔week giữ nguyên context, card mục "Chuyển qua lại day ↔ week giữ
+// nguyên context"). `format.ts` KHÔNG nằm trong touches của card này nên các
+// hàm ngày-giờ dưới đây thuần cục bộ trong file, dùng lại đúng convention
+// UTC-noon-anchor mà `addDays`/`toDateStr` của format.ts đã dùng.
+function weekdayMonFirst(dateStr: string): number {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const jsDay = new Date(Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1)).getUTCDay() // 0=CN..6=T7
+  return (jsDay + 6) % 7 // 0=T2..6=CN
+}
+
+/** Thứ Hai của tuần chứa `dateStr`. */
+function startOfWeek(dateStr: string): string {
+  return addDays(dateStr, -weekdayMonFirst(dateStr))
+}
+
+const WEEKDAY_VN_FULL = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật']
+
+/** "Thứ Hai · 21/07" — nhãn cột ngày trong lưới tuần. */
+function formatWeekColLabel(dateStr: string): string {
+  const [, m, d] = dateStr.split('-').map(Number)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${WEEKDAY_VN_FULL[weekdayMonFirst(dateStr)]} · ${pad(d ?? 0)}/${pad(m ?? 0)}`
 }
 
 // Chiều cao một hàng-giờ trên lưới, tính bằng px (đúng prototype dòng 271:
@@ -137,6 +164,13 @@ export default function TimelinePage() {
   const [schedule, setSchedule] = useState<ScheduleResponse | null>(null)
   const [orphanIds, setOrphanIds] = useState<Set<number>>(new Set())
   const [queueCount, setQueueCount] = useState(0)
+  // T-31: toggle Day/Week trên qbar. Week KHÔNG có drag/tạo (card "Ngoài") —
+  // chỉ đọc, để trả lời câu hỏi lấp-đầy. Đổi ngày ở day view giữ nguyên tuần
+  // chứa nó khi bật Week (context giữ nguyên qua lại).
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('day')
+  const [weekDays, setWeekDays] = useState<ScheduleRangeDay[] | null>(null)
+  const [weekLoading, setWeekLoading] = useState(false)
+  const [weekError, setWeekError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
@@ -535,10 +569,34 @@ export default function TimelinePage() {
     }
   }
 
+  // T-31: MỘT request range cho cả 7 ngày (cạm bẫy card: đừng gọi 7 lần tuần
+  // tự). Tuần luôn là Thứ Hai→Chủ Nhật chứa `date` hiện tại (giữ context day↔week).
+  const weekStart = useMemo(() => startOfWeek(date), [date])
+  const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart])
+
+  async function loadWeek() {
+    setWeekLoading(true)
+    setWeekError(null)
+    try {
+      const res = await getScheduleRange(weekStart, weekEnd)
+      setWeekDays(res.days)
+    } catch {
+      setWeekError('Không tải được lịch tuần. Vui lòng thử lại.')
+    } finally {
+      setWeekLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date])
+
+  useEffect(() => {
+    if (viewMode !== 'week') return
+    loadWeek()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, weekStart, weekEnd])
 
   // T-25: mỗi khi đã chọn gói xong, tải slot còn trống trong NGÀY đang xem
   // trên timeline (không phải "bây giờ" — khác walk-in). variant_id thay đổi
@@ -665,35 +723,113 @@ export default function TimelinePage() {
       )}
 
       <div className="ccf-tl-qbar">
-        <div className="ccf-tl-datenav">
+        <div className="ccf-tl-viewtoggle" role="group" aria-label="Chế độ xem">
           <button
             type="button"
-            aria-label="Ngày trước"
-            data-testid="date-prev"
-            onClick={() => setDate((d) => addDays(d, -1))}
+            className={`ccf-tl-toggle-btn${viewMode === 'day' ? ' ccf-tl-toggle-btn--active' : ''}`}
+            data-testid="view-toggle-day"
+            aria-pressed={viewMode === 'day'}
+            onClick={() => setViewMode('day')}
           >
-            ‹
+            Ngày
           </button>
-          <span className="ccf-tl-cur" data-testid="date-current">
-            {formatDateNav(date, todayStr)}
-          </span>
           <button
             type="button"
-            aria-label="Ngày sau"
-            data-testid="date-next"
-            onClick={() => setDate((d) => addDays(d, 1))}
+            className={`ccf-tl-toggle-btn${viewMode === 'week' ? ' ccf-tl-toggle-btn--active' : ''}`}
+            data-testid="view-toggle-week"
+            aria-pressed={viewMode === 'week'}
+            onClick={() => setViewMode('week')}
           >
-            ›
+            Tuần
           </button>
         </div>
-        {canAddService && (
+
+        {viewMode === 'day' ? (
+          <div className="ccf-tl-datenav">
+            <button
+              type="button"
+              aria-label="Ngày trước"
+              data-testid="date-prev"
+              onClick={() => setDate((d) => addDays(d, -1))}
+            >
+              ‹
+            </button>
+            <span className="ccf-tl-cur" data-testid="date-current">
+              {formatDateNav(date, todayStr)}
+            </span>
+            <button
+              type="button"
+              aria-label="Ngày sau"
+              data-testid="date-next"
+              onClick={() => setDate((d) => addDays(d, 1))}
+            >
+              ›
+            </button>
+          </div>
+        ) : (
+          <div className="ccf-tl-datenav">
+            <button
+              type="button"
+              aria-label="Tuần trước"
+              data-testid="week-prev"
+              onClick={() => setDate((d) => addDays(d, -7))}
+            >
+              ‹
+            </button>
+            <span className="ccf-tl-cur" data-testid="week-current">
+              {formatWeekColLabel(weekStart)} – {formatWeekColLabel(weekEnd)}
+            </span>
+            <button
+              type="button"
+              aria-label="Tuần sau"
+              data-testid="week-next"
+              onClick={() => setDate((d) => addDays(d, 7))}
+            >
+              ›
+            </button>
+          </div>
+        )}
+
+        <Button
+          variant="ghost"
+          size="sm"
+          data-testid="today-button"
+          onClick={() => setDate(todayStr)}
+        >
+          Hôm nay
+        </Button>
+
+        <input
+          type="date"
+          className="ccf-tl-datepick"
+          aria-label="Chọn ngày"
+          data-testid="date-picker"
+          value={date}
+          onChange={(e) => {
+            if (e.target.value !== '') setDate(e.target.value)
+          }}
+        />
+
+        {canAddService && viewMode === 'day' && (
           <Button variant="primary" size="sm" data-testid="create-booking-open" onClick={openCreateBooking}>
             + Đặt lịch
           </Button>
         )}
       </div>
 
-      {staff.length === 0 ? (
+      {viewMode === 'week' ? (
+        <WeekView
+          weekDays={weekDays}
+          loading={weekLoading}
+          error={weekError}
+          todayStr={todayStr}
+          orphanIds={orphanIds}
+          onPickDay={(d) => {
+            setDate(d)
+            setViewMode('day')
+          }}
+        />
+      ) : staff.length === 0 ? (
         <EmptyState icon="🗓️" text="Không có kỹ thuật viên nào đang hoạt động." />
       ) : (
         <div className="ccf-tl">
@@ -857,28 +993,30 @@ export default function TimelinePage() {
         </div>
       )}
 
-      <div className="ccf-tl-legend">
-        <span>
-          <i style={{ background: 'var(--g-100)', borderLeft: '3px solid var(--g-600)' }} />
-          Đã đặt
-        </span>
-        <span>
-          <i style={{ background: '#dbeafe', borderLeft: '3px solid #2563eb' }} />
-          Đang làm
-        </span>
-        <span>
-          <i style={{ background: '#fef0d6', borderLeft: '3px solid #d99b16' }} />
-          Khách vãng lai
-        </span>
-        <span>
-          <i style={{ background: 'var(--danger-bg)', borderLeft: '3px solid var(--danger)' }} />
-          Cần xếp lại
-        </span>
-        <span>
-          <i style={{ background: 'rgba(20,52,42,.12)' }} />
-          Thời gian dọn dẹp
-        </span>
-      </div>
+      {viewMode === 'day' && (
+        <div className="ccf-tl-legend">
+          <span>
+            <i style={{ background: 'var(--g-100)', borderLeft: '3px solid var(--g-600)' }} />
+            Đã đặt
+          </span>
+          <span>
+            <i style={{ background: '#dbeafe', borderLeft: '3px solid #2563eb' }} />
+            Đang làm
+          </span>
+          <span>
+            <i style={{ background: '#fef0d6', borderLeft: '3px solid #d99b16' }} />
+            Khách vãng lai
+          </span>
+          <span>
+            <i style={{ background: 'var(--danger-bg)', borderLeft: '3px solid var(--danger)' }} />
+            Cần xếp lại
+          </span>
+          <span>
+            <i style={{ background: 'rgba(20,52,42,.12)' }} />
+            Thời gian dọn dẹp
+          </span>
+        </div>
+      )}
 
       <Sheet
         open={selectedItem !== null}
@@ -1452,6 +1590,102 @@ export default function TimelinePage() {
           </div>
         )}
       </Sheet>
+    </div>
+  )
+}
+
+// T-31: week view — 7 cột ngày, MỖI ngày đủ thông tin để trả lời câu hỏi lấp-đầy
+// ("còn chỗ trống ở đâu"), KHÔNG có drag/tạo (card mục "Ngoài" — giữ tương tác
+// đầy đủ cho day view của T-29/T-30). Cách rẻ: đếm số lịch (booked/in_service)
+// + số lịch mồ côi mỗi KTV trong ngày, hiện thành badge; bấm ngày để nhảy sang
+// day view đúng ngày đó (chuyển view giữ nguyên context — card mục "giữ nguyên
+// context" khi qua lại day↔week).
+interface WeekViewProps {
+  weekDays: ScheduleRangeDay[] | null
+  loading: boolean
+  error: string | null
+  todayStr: string
+  orphanIds: Set<number>
+  onPickDay: (dateStr: string) => void
+}
+
+const LIVE_STATUSES = new Set(['booked', 'in_service'])
+
+function WeekView({ weekDays, loading, error, todayStr, orphanIds, onPickDay }: WeekViewProps) {
+  if (loading && weekDays === null) {
+    return <p>Đang tải lịch tuần...</p>
+  }
+  if (error && weekDays === null) {
+    return <Notice tone="warn">{error}</Notice>
+  }
+  if (weekDays === null) return null
+
+  return (
+    <div className="ccf-tl-week" data-testid="week-grid">
+      {weekDays.map((day) => {
+        const isToday = day.date === todayStr
+        const totalLive = day.staff.reduce(
+          (sum, s) => sum + s.items.filter((i) => LIVE_STATUSES.has(i.status)).length,
+          0,
+        )
+        const totalOrphan = day.staff.reduce(
+          (sum, s) => sum + s.items.filter((i) => orphanIds.has(i.id)).length,
+          0,
+        )
+        const isEmpty = totalLive === 0
+
+        return (
+          <button
+            type="button"
+            key={day.date}
+            className={`ccf-tl-weekday${isToday ? ' ccf-tl-weekday--today' : ''}`}
+            data-testid={`week-day-${day.date}`}
+            onClick={() => onPickDay(day.date)}
+          >
+            <div className="ccf-tl-weekday-head">
+              <span className="ccf-tl-weekday-label">{formatWeekColLabel(day.date)}</span>
+              {isToday && <span className="ccf-tl-weekday-todaytag">Hôm nay</span>}
+            </div>
+
+            {isEmpty ? (
+              <div className="ccf-tl-weekday-empty" data-testid={`week-day-empty-${day.date}`}>
+                Trống lịch
+              </div>
+            ) : (
+              <div className="ccf-tl-weekday-count" data-testid={`week-day-count-${day.date}`}>
+                {totalLive} lịch hẹn
+              </div>
+            )}
+            {totalOrphan > 0 && (
+              <div className="ccf-tl-weekday-orphan" data-testid={`week-day-orphan-${day.date}`}>
+                {totalOrphan} cần xếp lại
+              </div>
+            )}
+
+            <div className="ccf-tl-weekday-staff">
+              {day.staff.map((s) => {
+                const liveCount = s.items.filter((i) => LIVE_STATUSES.has(i.status)).length
+                const hasTimeOff = s.time_off.length > 0
+                return (
+                  <div className="ccf-tl-weekday-srow" key={s.id} data-testid={`week-day-${day.date}-staff-${s.id}`}>
+                    <span className="ccf-tl-weekday-sname">{s.name}</span>
+                    {hasTimeOff && (
+                      <span className="ccf-tl-weekday-sbadge ccf-tl-weekday-sbadge--off" aria-label="Nghỉ">
+                        Nghỉ
+                      </span>
+                    )}
+                    <span
+                      className={`ccf-tl-weekday-sbadge${liveCount === 0 ? ' ccf-tl-weekday-sbadge--free' : ''}`}
+                    >
+                      {liveCount === 0 ? 'Rảnh' : liveCount}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </button>
+        )
+      })}
     </div>
   )
 }

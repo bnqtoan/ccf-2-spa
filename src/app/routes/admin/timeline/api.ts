@@ -76,6 +76,29 @@ export async function getSchedule(date: string): Promise<ScheduleResponse> {
   return (await res.json()) as ScheduleResponse
 }
 
+/** T-31: một ngày trong response range — cùng hình dạng `staff` như ScheduleResponse. */
+export interface ScheduleRangeDay {
+  date: string
+  staff: ScheduleStaff[]
+}
+
+export interface ScheduleRangeResponse {
+  from: string
+  to: string
+  days: ScheduleRangeDay[]
+}
+
+/**
+ * `GET /api/admin/schedule?from=&to=` — T-31 week view: MỘT request cho cả 7
+ * ngày (không lặp `getSchedule` 7 lần tuần tự — cạm bẫy đã ghi trong card).
+ */
+export async function getScheduleRange(from: string, to: string): Promise<ScheduleRangeResponse> {
+  const params = new URLSearchParams({ from, to })
+  const res = await fetch(`/api/admin/schedule?${params.toString()}`)
+  if (!res.ok) return parseErrorAndThrow(res)
+  return (await res.json()) as ScheduleRangeResponse
+}
+
 /**
  * `GET /api/admin/reassign-queue` — item mồ côi do time-off. Nguồn sự thật
  * DUY NHẤT cho "item nào là mồ côi" — không tự suy luận lại ở frontend
