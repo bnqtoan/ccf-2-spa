@@ -698,14 +698,17 @@ export default function TimelinePage() {
 
   const staff = schedule?.staff ?? []
 
-  // T-29 fix: KTV đủ điều kiện cho ĐÚNG giờ đang chọn trong sheet đặt lịch —
-  // giao của staff hiển thị với staff_ids của slot khớp createTime (engine đã
-  // lọc skill + còn chỗ). null = chưa chọn gói (chưa gọi availability).
-  // QUAN TRỌNG: hook này + useEffect reset ngay dưới PHẢI đứng TRƯỚC mọi
-  // early-return loading/error — nếu không số hook đổi giữa các render →
-  // "Rendered more hooks than during the previous render" (crash timeline).
-  const createEligibleStaff = useMemo<{ id: number; name: string }[] | null>(() => {
-    if (createSlots === null) return null
+  // T-29 fix: KTV trong sheet đặt lịch.
+  // - CHƯA chọn gói: hiện TẤT CẢ staff (để click ô trống prefill được KTV của
+  //   cột đó ngay — "ý định", giờ đó cột đó).
+  // - ĐÃ chọn gói: LỌC theo engine availability (skill + còn chỗ đúng giờ). Nếu
+  //   KTV đã prefill vẫn đủ điều kiện thì giữ; không thì bỏ chọn + hiện notice.
+  // `createFiltering` = đã có gói ⇒ availability đã (đang) nạp.
+  const createFiltering = createVariantId !== null
+  // QUAN TRỌNG: các hook dưới PHẢI đứng TRƯỚC mọi early-return loading/error —
+  // nếu không số hook đổi giữa các render → "Rendered more hooks…" (crash).
+  const createEligibleStaff = useMemo<{ id: number; name: string }[]>(() => {
+    if (createSlots === null) return []
     const hm = parseHm(createTime)
     if (hm === null) return []
     const wantMin = hm.hh * 60 + hm.mm
@@ -714,15 +717,17 @@ export default function TimelinePage() {
     const ids = new Set(slot.staff_ids)
     return staff.filter((s) => ids.has(s.id))
   }, [createSlots, createTime, staff])
+  // Nguồn cho dropdown: tất cả staff khi chưa lọc, danh sách đủ-ĐK khi đã lọc.
+  const createStaffOptions = createFiltering ? createEligibleStaff : staff
 
-  // Nếu KTV đang chọn không còn đủ điều kiện (đổi giờ/gói) → bỏ chọn, tránh
-  // submit một lựa chọn không hợp lệ.
+  // Khi ĐANG lọc (đã chọn gói) mà KTV đang chọn không còn đủ điều kiện → bỏ chọn.
+  // KHÔNG bỏ khi chưa lọc (giữ KTV prefill từ click ô trống).
   useEffect(() => {
-    if (createStaffId === null || createEligibleStaff === null) return
+    if (!createFiltering || createStaffId === null || createSlots === null) return
     if (!createEligibleStaff.some((s) => s.id === createStaffId)) {
       setCreateStaffId(null)
     }
-  }, [createEligibleStaff, createStaffId])
+  }, [createFiltering, createEligibleStaff, createStaffId, createSlots])
 
   // Early-return states — SAU mọi hook (React yêu cầu số hook ổn định). AdminNav
   // do AdminShell render ở ngoài, không lặp ở đây.
@@ -1570,28 +1575,27 @@ export default function TimelinePage() {
           />
           <Field
             as="select"
-            label="Kỹ thuật viên (chỉ hiện người đủ kỹ năng + còn trống giờ này)"
+            label={
+              createFiltering
+                ? 'Kỹ thuật viên (chỉ hiện người đủ kỹ năng + còn trống giờ này)'
+                : 'Kỹ thuật viên'
+            }
             data-testid="create-booking-staff-select"
             value={createStaffId ?? ''}
-            disabled={createVariantId === null}
             onChange={(e) => setCreateStaffId(e.target.value === '' ? null : Number(e.target.value))}
           >
             <option value="">
-              {createVariantId === null
-                ? '— Chọn gói trước —'
-                : createSlotsLoading
-                  ? '— Đang tìm người phù hợp… —'
-                  : '— Chọn kỹ thuật viên —'}
+              {createFiltering && createSlotsLoading ? '— Đang tìm người phù hợp… —' : '— Chọn kỹ thuật viên —'}
             </option>
-            {(createEligibleStaff ?? []).map((s) => (
+            {createStaffOptions.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
             ))}
           </Field>
-          {createVariantId !== null &&
+          {createFiltering &&
             !createSlotsLoading &&
-            createEligibleStaff !== null &&
+            createSlots !== null &&
             createEligibleStaff.length === 0 && (
               <Notice tone="warn" style={{ marginTop: 8 }} data-testid="create-booking-no-staff">
                 Không có kỹ thuật viên nào đủ kỹ năng và còn trống vào {createTime}. Chọn giờ khác.
