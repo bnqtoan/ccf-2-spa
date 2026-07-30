@@ -86,27 +86,29 @@ test.describe('Khách tự đổi giờ (reschedule)', () => {
       }
     }
     expect(chosenChip, 'phải có ít nhất một ngày làm việc (không phải Chủ nhật) trong dải 14 ngày').not.toBeNull()
+    const chosenIso = (await chosenChip!.getAttribute('data-testid'))!.replace('rs-date-', '')
     await chosenChip!.click()
 
-    // Chốt slot theo TESTID CỐ ĐỊNH, không theo `.first()` đọc-rồi-bấm. Lưới
-    // slot có thể refetch/re-render (availability đổi khi spec anh em seed
-    // booking cho 'Lan') → nếu đọc nhãn ở slot-đầu rồi mới bấm, phần tử đầu có
-    // thể đã đổi giữa hai thao tác: bấm nhầm giờ khác giờ vừa đọc → hàng
-    // ".ccf-lk-when" hiện giờ đã cam kết KHÁC nhãn đã đọc, đỏ ngẫu nhiên. Ở đây:
-    // đọc testid (rs-slot-<start_at>) của slot đầu MỘT lần, rồi mọi thao tác sau
-    // đều neo vào ĐÚNG testid đó — nhãn kỳ vọng suy ra từ chính start_at đã chốt.
-    const firstSlot = page.locator('[data-testid^="rs-slot-"]').first()
-    await expect(firstSlot).toBeVisible()
-    const slotTestId = (await firstSlot.getAttribute('data-testid')) ?? ''
-    const chosenSlot = page.getByTestId(slotTestId)
-    const newTimeLabel = (await chosenSlot.textContent())?.trim() ?? ''
-    await chosenSlot.click()
+    // Đổi chip ngày → component gọi lại availability (setSlots(null) rồi set lưới
+    // mới). Nếu đọc/bấm slot NGAY, có thể trúng lưới của ngày CŨ đang bị thay
+    // (CI chậm hơn → cửa sổ race rộng hơn, đây chính là lý do CI đỏ mà local
+    // xanh). PHẢI đợi lưới ổn định cho ĐÚNG ngày đã chọn trước khi chạm slot:
+    // chờ chip được đánh dấu chọn (state đã cập nhật) rồi chờ ít nhất một slot.
+    await expect(page.getByTestId(`rs-date-${chosenIso}`)).toHaveClass(/ccf-lk-rs-date--sel/)
+    const slots = page.locator('[data-testid^="rs-slot-"]')
+    await expect(slots.first()).toBeVisible()
 
-    // Thẻ "Giờ mới" xác nhận đúng slot vừa chốt hiển thị nhãn giờ đã đọc — chặn
-    // trường hợp bấm trúng slot khác trước khi cam kết.
+    // KHÔNG cache testid rồi bấm (phần tử có thể detach nếu còn refetch). Bấm
+    // thẳng `.first()` — Playwright tự re-resolve tại thời điểm click. Nhãn giờ
+    // "đã chốt" đọc từ THẺ reschedule-chosen (dẫn xuất từ selectedStartAt sau khi
+    // đã cam kết), nguồn-sự-thật duy nhất → không có cửa sổ đọc-trên-lưới-cũ.
+    await slots.first().click()
+
     const chosen = page.getByTestId('reschedule-chosen')
     await expect(chosen).toBeVisible()
-    await expect(chosen).toContainText(newTimeLabel)
+    // "17:30" từ nhãn "Giờ mới" trong thẻ đã chốt (formatWhen chứa hm).
+    const newTimeLabel = (await chosen.locator('.ccf-lk-d').textContent())?.match(/\d{1,2}:\d{2}/)?.[0] ?? ''
+    expect(newTimeLabel, 'thẻ giờ mới phải hiện nhãn giờ HH:MM').not.toBe('')
 
     await page.getByTestId('reschedule-confirm').click()
 
