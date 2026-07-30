@@ -26,9 +26,11 @@ type Bindings = { DB: D1Database }
  * nhân thay vì "hết giờ" chung chung:
  *  - no_staff_skilled : không KTV nào (active) có kỹ năng của dịch vụ này.
  *  - no_staff_on_shift: có KTV đủ kỹ năng nhưng không ai vào ca ngày đó.
- *  - fully_booked     : có KTV vào ca nhưng đã kín / chỉ còn giờ đã qua.
+ *  - day_over         : có chỗ trong ngày nhưng giờ hiện tại đã qua mốc cuối
+ *                       (chỉ xảy ra khi hỏi NGÀY HÔM NAY vào cuối ca).
+ *  - fully_booked     : có KTV vào ca nhưng booking/nghỉ đã chiếm hết.
  */
-export type EmptyReason = 'no_staff_skilled' | 'no_staff_on_shift' | 'fully_booked'
+export type EmptyReason = 'no_staff_skilled' | 'no_staff_on_shift' | 'day_over' | 'fully_booked'
 
 const routes = new Hono<{ Bindings: Bindings }>()
 
@@ -144,7 +146,7 @@ routes.get('/api/availability', async (c) => {
       .all<BusyItem>(),
   ])
 
-  const slots = computeAvailability({
+  const engineInput = {
     variant: { duration_min: variant.duration_min, buffer_after_min: variant.buffer_after_min },
     staff: candidates,
     shifts: shiftRes.results,
@@ -152,15 +154,26 @@ routes.get('/api/availability', async (c) => {
     busyItems: busyRes.results,
     dayStart,
     dayEnd,
-    now: serverNow(c),
-  })
+  }
+
+  const slots = computeAvailability({ ...engineInput, now: serverNow(c) })
 
   if (slots.length > 0) return c.json({ slots })
 
-  // Empty despite having skilled candidates → phân biệt "không ai có ca hôm
-  // nay" (KTV phục vụ dịch vụ này đều nghỉ) với "kín/đã qua giờ" (có ca nhưng
-  // hết chỗ hoặc chỉ còn giờ trong quá khứ). shiftRes rỗng = không ai vào ca.
-  const reason: EmptyReason = shiftRes.results.length === 0 ? 'no_staff_on_shift' : 'fully_booked'
+  // Rỗng dù có KTV đủ kỹ năng → nói ĐÚNG nguyên nhân. Phân biệt bốn ca:
+  //  - no_staff_on_shift: không ai vào ca ngày đó (shiftRes rỗng).
+  //  - day_over: CÓ chỗ trong ngày nhưng giờ hiện tại đã qua mốc cuối cùng
+  //    (tính lại với now=dayStart mà VẪN có slot ⇒ chỉ bị cắt bởi quá-khứ, KHÔNG
+  //    phải do kín). Đây là ca khiến "hết giờ nhưng lịch trống" trước đây gây
+  //    hiểu nhầm là fully_booked.
+  //  - fully_booked: kể cả bỏ mốc quá-khứ vẫn rỗng ⇒ booking/nghỉ chiếm hết.
+  let reason: EmptyReason
+  if (shiftRes.results.length === 0) {
+    reason = 'no_staff_on_shift'
+  } else {
+    const ignoringPast = computeAvailability({ ...engineInput, now: dayStart })
+    reason = ignoringPast.length > 0 ? 'day_over' : 'fully_booked'
+  }
   return c.json({ slots, reason })
 })
 

@@ -647,13 +647,17 @@ export default function TimelinePage() {
         if (cancelled) return
         setCreateSlots(slots)
         setCreateSlotsReason(reason)
-        // Mặc định chọn slot đầu nếu giờ hiện tại không nằm trong slot còn trống
-        // (tránh trạng thái "đã prefill 11:00 nhưng 11:00 đã qua → rỗng").
-        const first = slots[0]
+        if (slots.length === 0) return
+        // Chọn giờ mặc định TÔN TRỌNG ô vừa bấm: nếu giờ đã prefill (vd 14:00 khi
+        // bấm ô 14h) đúng là một slot còn trống → giữ nguyên. Nếu không, ưu tiên
+        // slot ĐẦU TIÊN CÙNG GIỜ đó (14:15, 14:30… — người dùng bấm "khoảng 14h"
+        // chứ không nhất thiết đúng phút 00). Chỉ khi cả giờ đó không có slot nào
+        // mới lùi về slot đầu ngày. Tránh việc bấm ô 14h lại nhảy về 09:00.
         const times = new Set(slots.map((r) => formatHm(r.start_at)))
-        if (first && !times.has(createTime)) {
-          setCreateTime(formatHm(first.start_at))
-        }
+        if (times.has(createTime)) return
+        const clickedHour = createTime.slice(0, 2) // 'HH' từ 'HH:mm'
+        const sameHour = slots.find((r) => formatHm(r.start_at).startsWith(`${clickedHour}:`))
+        setCreateTime(formatHm((sameHour ?? slots[0]!).start_at))
       })
       .catch(() => {
         if (!cancelled) {
@@ -1584,7 +1588,9 @@ export default function TimelinePage() {
                 ? 'Chưa có kỹ thuật viên nào phục vụ dịch vụ này. Thêm kỹ năng cho một KTV trong Thiết lập.'
                 : createSlotsReason === 'no_staff_on_shift'
                   ? `Kỹ thuật viên phục vụ dịch vụ này không có ca làm ngày ${formatDateNav(date, todayStr)}. Chọn ngày khác hoặc sửa ca làm việc.`
-                  : `Đã kín giờ cho dịch vụ này trong ngày ${formatDateNav(date, todayStr)}. Chọn ngày khác.`}
+                  : createSlotsReason === 'day_over'
+                    ? `Đã qua giờ đặt cho dịch vụ này trong ${formatDateNav(date, todayStr)} (không đủ thời gian trước giờ đóng cửa). Chọn ngày khác.`
+                    : `Đã kín giờ cho dịch vụ này trong ngày ${formatDateNav(date, todayStr)}. Chọn ngày khác.`}
             </Notice>
           ) : (
             <>

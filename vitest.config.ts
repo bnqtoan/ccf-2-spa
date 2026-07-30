@@ -35,6 +35,10 @@ export default defineConfig({
           // prod sets it via secret put. T-23: ADMIN_PASSWORD removed — login
           // only ever checks the `users` table hash, no env password needed.
           SESSION_SECRET: 'test-session-secret',
+          // Cho phép cố định "now" per-request qua header X-Test-Now (chỉ khi cờ
+          // này = '1'). Dùng để test nhánh day_over của /api/availability. An
+          // toàn: prod KHÔNG set cờ nên header luôn bị bỏ qua (xem lib/clock.ts).
+          TEST_CLOCK: '1',
         },
       },
     }),

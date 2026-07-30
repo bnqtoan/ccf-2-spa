@@ -141,8 +141,12 @@ interface SlotsBody {
   slots: { start_at: number; staff_ids: number[] }[]
 }
 
-async function getAvailability(query: string): Promise<{ status: number; body: any }> {
-  const res = await exports.default.fetch(`https://example.com/api/availability?${query}`)
+async function getAvailability(
+  query: string,
+  nowSec?: number,
+): Promise<{ status: number; body: any }> {
+  const init = nowSec === undefined ? undefined : { headers: { 'X-Test-Now': String(nowSec) } }
+  const res = await exports.default.fetch(`https://example.com/api/availability?${query}`, init)
   return { status: res.status, body: await res.json() }
 }
 
@@ -246,6 +250,19 @@ describe('GET /api/availability — lọc ứng viên', () => {
     const { body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`)
     expect(body.slots).toEqual([])
     expect(body.reason).toBe('fully_booked')
+  })
+
+  it('có ca + lịch TRỐNG nhưng "now" đã qua giờ chót → reason day_over (không phải fully_booked)', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    await insertShift(lan, FUTURE_WEEKDAY, 540, 1140) // 09:00–19:00 cả ngày, KHÔNG booking
+    const variant = await insertVariant(skill, { duration: 60, buffer: 10 })
+
+    // "now" = 18:30 trên chính FUTURE_DATE: block 60+10=70' phải xong trước 19:00
+    // ⇒ start chót 17:50; 18:30 đã qua → rỗng, nhưng vì QUÁ-KHỨ chứ không phải kín.
+    const { body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`, at(18, 30))
+    expect(body.slots).toEqual([])
+    expect(body.reason).toBe('day_over')
   })
 
   it('khi CÓ slot trả về thì KHÔNG kèm reason', async () => {

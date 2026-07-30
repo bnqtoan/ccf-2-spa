@@ -193,7 +193,11 @@ export interface AvailabilitySlot {
 
 /** Lý do lưới slot rỗng (khớp EmptyReason ở src/worker/routes/availability.ts).
  *  Chỉ có mặt khi slots rỗng. */
-export type AvailabilityEmptyReason = 'no_staff_skilled' | 'no_staff_on_shift' | 'fully_booked'
+export type AvailabilityEmptyReason =
+  | 'no_staff_skilled'
+  | 'no_staff_on_shift'
+  | 'day_over'
+  | 'fully_booked'
 
 export interface AvailabilityResult {
   slots: AvailabilitySlot[]
