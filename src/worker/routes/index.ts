@@ -19,6 +19,11 @@ import adminOverview from './admin-overview.ts'
 import adminUsers from './admin-users.ts'
 import payments from './payments.ts'
 import auth, { adminAuthGuard, requireRoleMw } from './auth.ts'
+// Mốc build THẬT (`YYYY-MM-DD-<sha7>`) — ghi vào src/worker/build-tag.ts lúc
+// build bởi scripts/gen-build-tag.mjs (wrangler.jsonc build.command). Import
+// như mã nguồn thường nên bundler nào cũng gộp; mặc định 'dev' cho dev/vitest.
+// /api/version là cách xác nhận auto-deploy qua Workers Builds thật sự chạy.
+import { BUILD_TAG } from '../build-tag.ts'
 
 /**
  * Điểm gom route duy nhất (CONVENTIONS §7).
@@ -26,13 +31,6 @@ import auth, { adminAuthGuard, requireRoleMw } from './auth.ts'
  * Các task sau CHỈ thêm một dòng vào hàm này — không sửa theo cách khác,
  * để nhiều agent chạy song song không giẫm chân nhau khi merge.
  */
-// Mốc build THẬT — nhúng lúc `vite build` (xem vite.config.ts `define`), dạng
-// `YYYY-MM-DD-<sha7>`. Phản ánh đúng commit đang chạy production nên /api/version
-// là cách xác nhận auto-deploy qua Workers Builds thật sự chạy. Ở môi trường
-// không qua Vite (vitest workerd pool) hằng số này không được thay → fallback.
-declare const __BUILD_TAG__: string
-const BUILD_TAG = typeof __BUILD_TAG__ === 'string' ? __BUILD_TAG__ : 'dev'
-
 export function registerRoutes(app: Hono) {
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.get('/api/version', (c) => c.json({ build: BUILD_TAG }))

@@ -2,6 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ccf-2-spa",
   "main": "src/worker/index.ts",
+  // Sinh mốc build THẬT vào src/worker/build-tag.ts TRƯỚC khi wrangler bundle
+  // worker → /api/version phản ánh đúng commit đang chạy (xem scripts/).
+  "build": { "command": "node scripts/gen-build-tag.mjs" },
   "compatibility_date": "2026-07-21",
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
