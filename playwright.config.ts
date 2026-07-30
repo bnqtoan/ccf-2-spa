@@ -6,7 +6,11 @@ export default defineConfig({
   // để biết vì sao (dữ liệu fixture tích luỹ làm hàng chờ reassign và timeline
   // vỡ theo cách chỉ lộ ra khi chạy cả bộ, không lộ khi chạy từng file).
   globalSetup: './tests/e2e/global-setup.ts',
-  fullyParallel: true,
+  // Chạy TUẦN TỰ (một test một lúc). App nhỏ, chạy solo → CI ~vài phút là chấp
+  // nhận được, và serial khử TẬN GỐC race SQLITE_BUSY (hai writer trên một file
+  // local .wrangler/state). Không cần busy-retry / nhiều project phức tạp nữa.
+  fullyParallel: false,
+  workers: 1,
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:5173',
