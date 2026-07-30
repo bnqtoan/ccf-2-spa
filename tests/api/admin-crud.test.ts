@@ -46,6 +46,10 @@ async function patch(path: string, body: unknown): Promise<Response> {
   return api(path, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 }
 
+async function put(path: string, body: unknown): Promise<Response> {
+  return api(path, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+}
+
 async function createBase() {
   const skill = await (await post('/api/admin/skills', { name: 'Massage' })).json() as { id: number }
   const staff = await (await post('/api/admin/staff', { name: 'Lan' })).json() as { id: number }
@@ -98,6 +102,55 @@ describe('admin CRUD', () => {
     const response = await patch(`/api/admin/shifts/${shift.id}`, { start_min: 600, end_min: 1080 })
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ id: shift.id, start_min: 600, end_min: 1080 })
+  })
+
+  it('PUT tuần mẫu thay TOÀN BỘ ca của một KTV nguyên tử (xoá cũ, chèn mới)', async () => {
+    const { staff } = await createBase()
+    // Trạng thái ban đầu: KTV có ca T4 mà lần lưu sau sẽ không còn.
+    await post('/api/admin/shifts', { staff_id: staff.id, weekday: 3, start_min: 480, end_min: 720 })
+
+    const response = await put(`/api/admin/staff/${staff.id}/shifts`, {
+      shifts: [
+        { weekday: 1, start_min: 540, end_min: 1020 },
+        { weekday: 2, start_min: 540, end_min: 1020 },
+      ],
+    })
+    expect(response.status).toBe(200)
+
+    const list = await (await api('/api/admin/shifts')).json() as { staff_id: number; weekday: number; start_min: number; end_min: number }[]
+    const mine = list.filter((s) => s.staff_id === staff.id).sort((a, b) => a.weekday - b.weekday)
+    // Ca T4 cũ đã biến mất; chỉ còn đúng 2 dòng mới.
+    expect(mine.map((s) => s.weekday)).toEqual([1, 2])
+    expect(mine.every((s) => s.start_min === 540 && s.end_min === 1020)).toBe(true)
+  })
+
+  it('PUT tuần mẫu với mảng rỗng xoá sạch tuần của KTV đó', async () => {
+    const { staff } = await createBase()
+    await post('/api/admin/shifts', { staff_id: staff.id, weekday: 1, start_min: 540, end_min: 1020 })
+    expect((await put(`/api/admin/staff/${staff.id}/shifts`, { shifts: [] })).status).toBe(200)
+    const list = await (await api('/api/admin/shifts')).json() as { staff_id: number }[]
+    expect(list.filter((s) => s.staff_id === staff.id)).toHaveLength(0)
+  })
+
+  it('PUT tuần mẫu với weekday ngoài 0-6 trả 422 VALIDATION và không đổi gì', async () => {
+    const { staff } = await createBase()
+    await post('/api/admin/shifts', { staff_id: staff.id, weekday: 1, start_min: 540, end_min: 1020 })
+    const response = await put(`/api/admin/staff/${staff.id}/shifts`, {
+      shifts: [{ weekday: 7, start_min: 540, end_min: 1020 }],
+    })
+    expect(response.status).toBe(422)
+    expect((await response.json() as { error: { code: string } }).error.code).toBe('VALIDATION')
+    // Dữ liệu cũ còn nguyên — replace nguyên tử, không nửa vời.
+    const list = await (await api('/api/admin/shifts')).json() as { staff_id: number; weekday: number }[]
+    expect(list.filter((s) => s.staff_id === staff.id).map((s) => s.weekday)).toEqual([1])
+  })
+
+  it('PUT tuần mẫu với start_min >= end_min trả 422 VALIDATION', async () => {
+    const { staff } = await createBase()
+    const response = await put(`/api/admin/staff/${staff.id}/shifts`, {
+      shifts: [{ weekday: 1, start_min: 600, end_min: 600 }],
+    })
+    expect(response.status).toBe(422)
   })
 
   it('vô hiệu hoá staff (active=false) khiến KTV đó không còn xuất hiện trong kết quả availability của bất kỳ ngày nào', async () => {

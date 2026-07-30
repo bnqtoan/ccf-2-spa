@@ -81,7 +81,7 @@ async function getJson<T>(url: string): Promise<T> {
   return (await res.json()) as T
 }
 
-async function sendJson<T>(url: string, method: 'POST' | 'PATCH', payload: unknown): Promise<T> {
+async function sendJson<T>(url: string, method: 'POST' | 'PATCH' | 'PUT', payload: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -200,3 +200,10 @@ export const updateShift = (
 ): Promise<WorkShift> => sendJson(`/api/admin/shifts/${id}`, 'PATCH', patch)
 
 export const deleteShift = (id: number): Promise<void> => sendDelete(`/api/admin/shifts/${id}`)
+
+/** Thay TOÀN BỘ tuần mẫu của một KTV nguyên tử (T-36) — một request, không có
+ * trạng thái "tuần nửa vời". Trả về danh sách ca sau khi lưu. */
+export const replaceStaffWeek = (
+  staffId: number,
+  shifts: { weekday: number; start_min: number; end_min: number }[],
+): Promise<WorkShift[]> => sendJson(`/api/admin/staff/${staffId}/shifts`, 'PUT', { shifts })

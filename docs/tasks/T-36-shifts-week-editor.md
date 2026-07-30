@@ -1,7 +1,7 @@
 ---
 id: T-36
 title: Ca làm việc — sửa theo TUẦN MẪU mỗi KTV (thay danh sách 35 dòng thêm-từng-cái)
-status: todo
+status: review
 model: opus
 effort: high
 depends_on: []
@@ -10,10 +10,15 @@ touches:
   - src/app/routes/admin/setup/setup.css
   - src/app/routes/admin/setup/api.ts
   - tests/e2e/admin-setup.spec.ts
+  # Hướng (b) replace-week nguyên tử — file thêm ngoài touches gốc (card cho phép):
+  - src/worker/routes/admin-staff-shifts.ts   # route mới (approach b)
+  - src/worker/routes/index.ts                # +1 dòng đăng ký route
+  - src/worker/db/crud.ts                      # +replaceStaffWeek() nguyên tử
+  - tests/api/admin-crud.test.ts              # test endpoint replace-week (approach b)
 prd_refs: []
 owner: null
-started_at: null
-finished_at: null
+started_at: 2026-07-30
+finished_at: 2026-07-30
 ---
 
 # T-36 · Ca làm việc — sửa theo TUẦN MẪU mỗi KTV
@@ -101,4 +106,52 @@ danh sách 35-dòng-thêm-từng-cái biến mất; engine đặt lịch không 
   trong engine, đừng lệch một ngày.
 
 ## Đã làm gì
-(agent điền khi xong)
+
+### Backend: hướng (b) — endpoint replace-week nguyên tử (vì sao)
+Chọn `PUT /api/admin/staff/:id/shifts` thay vì diff xoá-tạo-lại ở client.
+- Lý do: diff nhiều request KHÔNG nguyên tử — lỗi giữa chừng để lại "tuần nửa
+  vời" (vài ngày mới, vài ngày cũ), đúng cạm bẫy card cảnh báo. Endpoint gói
+  `DELETE FROM work_shifts WHERE staff_id=?` + các `INSERT` trong MỘT
+  `db.batch()` → hoặc cả tuần lưu, hoặc không đổi gì.
+- Rẻ đúng như card nói: 1 helper `crud.replaceStaffWeek()`, 1 route file mới
+  (`admin-staff-shifts.ts`), +1 dòng `import` + 1 dòng `app.route()` trong
+  `index.ts` (card cho phép sửa index.ts cho approach b).
+- KHÔNG đổi schema `work_shifts`, KHÔNG đổi engine. `availability.ts`,
+  `validate-booking.ts`, `admin-overview.ts` vẫn đọc bảng y như cũ — chỉ cách
+  GHI đổi. Regression: 446/446 unit+API xanh (gồm availability/validate-booking).
+- Route nằm dưới `/api/admin/*` nên auth guard áp sẵn; shifts là owner+lễ tân
+  (không gate thêm, khớp comment index.ts). Validation ở server: weekday 0-6,
+  phút 0-1440, start<end, chặn trùng weekday → 422 VALIDATION.
+
+### Weekday mapping (đã xác nhận, không lệch ngày)
+`weekdayOf()` trong `src/worker/lib/time.ts` trả **0=CN..6=T7**, khớp
+`WEEKDAY_LABELS[0]='Chủ nhật'`. Lưới hiển thị Thứ 2→CN qua `WEEK_ORDER =
+[1,2,3,4,5,6,0]` (thứ tự DÒNG cho quen mắt owner VN) nhưng giá trị `weekday`
+LƯU vẫn theo mapping gốc — không đổi số. E2E khẳng định trực tiếp qua API:
+bật T2–T6 → đúng weekday [1,2,3,4,5], 540–1020 phút-từ-nửa-đêm.
+
+### UX trước/sau
+- Trước: form 4-field thêm TỪNG ca một → danh sách phẳng 7 dòng/KTV, mỗi dòng
+  chỉ có nút "Xoá", không sửa được (35 dòng nhập tay cho 5 KTV).
+- Sau: chọn 1 KTV → lưới 7 ngày (toggle làm/nghỉ + giờ vào/ra, mặc định
+  09:00–17:00 khi bật) → một nút "Lưu tuần". Kèm "Áp giờ cho các ngày đang bật"
+  và "Copy tuần của KTV khác" (điền nhanh). Khối "Tóm tắt tuần theo KTV" hiện
+  gọn ("T2 09:00–17:00, T3 …") và bấm được để nạp thẳng vào lưới sửa.
+- Hint ranh giới: "Nghỉ đột xuất một hôm → dùng Báo nghỉ trên Lịch ngày" —
+  KHÔNG làm override calendar (out of scope).
+
+### Ghi chú phạm vi
+Tuần mẫu = một cửa sổ ca / ngày. Endpoint + UI cố ý chặn hai dòng cùng weekday
+(split-shift hai cửa sổ cùng ngày) — nằm ngoài phạm vi card này. Nếu nghiệp vụ
+cần split-shift thật thì phải mở card riêng (data model một-dòng-mỗi-(KTV,thứ)
+đủ chứa, nhưng UI tuần-mẫu hiện chỉ một cửa sổ).
+
+### Verify (output thật)
+- `npm run typecheck`: sạch (không lỗi).
+- `npm test`: **446 passed (27 files)** — trước là 442, +4 test replace-week.
+  Availability/validate-booking regression xanh.
+- E2E `admin-setup` (chromium, --no-deps, workers=1): **12 passed**, gồm 2 test
+  tuần-mẫu mới (lưu+tải-lại, end≤start bị chặn không gọi API) + tap-target.
+  Lần chạy full-deps trước đó đỏ 1 test ở `admin-timeline.spec.ts`
+  (`create-booking-staff-select` không nạp options) — đây là flake env đã biết ở
+  pha seed-dependency, KHÔNG liên quan logic ca làm việc.
