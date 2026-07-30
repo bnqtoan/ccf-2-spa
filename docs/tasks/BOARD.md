@@ -53,6 +53,7 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-34 | Seed E2E qua binding (bỏ spawn wrangler) → nhanh + tất định | review | opus | — |
 | T-35 | E2E nhanh gấp đôi — khử 3 test chờ đồng-hồ-thật (140s→50s) | review | opus | — |
 | T-36 | Ca làm việc — sửa theo tuần mẫu mỗi KTV (bỏ list 35 dòng) | todo | opus | — |
+| T-37 | Khử SQLITE_BUSY còn sót — busy-retry đường ghi app (CI đỏ thật) | todo | opus | — |
 
 ## Nhóm timeline-as-calendar (T-29..T-32)
 
