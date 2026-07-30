@@ -248,7 +248,8 @@ test.describe('Luồng khách đặt lịch', () => {
     await expect(page.getByTestId('time-continue')).toBeEnabled()
     await page.getByTestId('time-continue').click()
 
-    await expect(page.getByText(`Kỹ thuật viên #${fx.staffId}`)).toBeVisible()
+    // Màn xác nhận hiện TÊN THẬT của KTV đã chọn (không còn "Kỹ thuật viên #id").
+    await expect(page.getByText(fx.staffName)).toBeVisible()
   })
 
   test('chọn "Để spa sắp xếp" thì không cần chọn KTV cụ thể vẫn đặt được', async ({ page, request }) => {

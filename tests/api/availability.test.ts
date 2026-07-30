@@ -274,6 +274,8 @@ describe('GET /api/availability — lọc ứng viên', () => {
     const { body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`)
     expect(body.slots.length).toBeGreaterThan(0)
     expect(body.reason).toBeUndefined()
+    // Kèm TÊN KTV để trang khách hiện tên thật (không "Kỹ thuật viên #id").
+    expect(body.staff).toEqual([{ id: lan, name: 'Lan' }])
   })
 })
 

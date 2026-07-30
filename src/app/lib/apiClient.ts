@@ -91,18 +91,25 @@ export async function getServices(): Promise<Service[]> {
   return body.services
 }
 
-/** `GET /api/availability?variant_id&date[&staff_id]` — slot còn trống trong ngày. */
+export interface AvailabilityResult {
+  slots: AvailabilitySlot[]
+  /** id→tên của KTV phục vụ được dịch vụ này (để UI hiện TÊN, không phải "KTV #id"). */
+  staffNames: Map<number, string>
+}
+
+/** `GET /api/availability?variant_id&date[&staff_id]` — slot còn trống + tên KTV. */
 export async function getAvailability(
   variantId: number,
   date: string,
   staffId?: number,
-): Promise<AvailabilitySlot[]> {
+): Promise<AvailabilityResult> {
   const params = new URLSearchParams({ variant_id: String(variantId), date })
   if (staffId !== undefined) params.set('staff_id', String(staffId))
   const res = await fetch(`/api/availability?${params.toString()}`)
   if (!res.ok) return parseErrorAndThrow(res)
-  const body = (await res.json()) as { slots: AvailabilitySlot[] }
-  return body.slots
+  const body = (await res.json()) as { slots: AvailabilitySlot[]; staff?: { id: number; name: string }[] }
+  const staffNames = new Map<number, string>((body.staff ?? []).map((s) => [s.id, s.name]))
+  return { slots: body.slots, staffNames }
 }
 
 /**

@@ -84,6 +84,7 @@ type Screen =
       dateStr: string
       startAt: number
       staffId: number | null // null = "Để spa sắp xếp"
+      staffName?: string | null // tên KTV đã chọn (để màn xác nhận hiện tên, không "#id")
     }
   | {
       name: 'done'
@@ -252,7 +253,7 @@ export default function BookingPage() {
           <TimeScreen
             service={screen.service}
             variant={screen.variant}
-            onContinue={(dateStr, startAt, staffId) =>
+            onContinue={(dateStr, startAt, staffId, staffName) =>
               setScreen({
                 name: 'confirm',
                 service: screen.service,
@@ -260,6 +261,7 @@ export default function BookingPage() {
                 dateStr,
                 startAt,
                 staffId,
+                staffName,
               })
             }
           />
@@ -271,6 +273,7 @@ export default function BookingPage() {
             dateStr={screen.dateStr}
             startAt={screen.startAt}
             staffId={screen.staffId}
+            staffName={screen.staffName}
             onSlotTaken={() =>
               setScreen({ name: 'time', service: screen.service, variant: screen.variant })
             }
@@ -594,11 +597,12 @@ function TimeScreen({
 }: {
   service: Service
   variant: ServiceVariant
-  onContinue: (dateStr: string, startAt: number, staffId: number | null) => void
+  onContinue: (dateStr: string, startAt: number, staffId: number | null, staffName: string | null) => void
 }) {
   const days = useMemo(() => next14Days(), [])
   const [dateStr, setDateStr] = useState(days[0] ?? '')
   const [slots, setSlots] = useState<AvailabilitySlot[] | null>(null)
+  const [staffNames, setStaffNames] = useState<Map<number, string>>(new Map())
   const [error, setError] = useState<string | null>(null)
   const [selectedStartAt, setSelectedStartAt] = useState<number | null>(null)
   // null = "Để spa sắp xếp" — đây là MẶC ĐỊNH, không phải "chưa chọn".
@@ -615,8 +619,10 @@ function TimeScreen({
     setSelectedStartAt(null)
     setSelectedStaffId(null)
     getAvailability(variant.id, dateStr)
-      .then((rows) => {
-        if (!cancelled) setSlots(rows)
+      .then(({ slots: rows, staffNames: names }) => {
+        if (cancelled) return
+        setSlots(rows)
+        setStaffNames(names)
       })
       .catch(() => {
         if (!cancelled) setError('Không tải được khung giờ. Vui lòng thử lại.')
@@ -717,19 +723,22 @@ function TimeScreen({
               <Pill>Gợi ý</Pill>
             </div>
           </Card>
-          {chosenSlot.staff_ids.map((staffId) => (
-            <Card
-              key={staffId}
-              selected={selectedStaffId === staffId}
-              onClick={() => pickStaff(staffId)}
-              data-testid={`staff-${staffId}`}
-            >
-              <div className="ccf-bk-staffpick">
-                <Avatar name={`KTV ${staffId}`} />
-                <div className="ccf-bk-nm">Kỹ thuật viên #{staffId}</div>
-              </div>
-            </Card>
-          ))}
+          {chosenSlot.staff_ids.map((staffId) => {
+            const name = staffNames.get(staffId) ?? `Kỹ thuật viên #${staffId}`
+            return (
+              <Card
+                key={staffId}
+                selected={selectedStaffId === staffId}
+                onClick={() => pickStaff(staffId)}
+                data-testid={`staff-${staffId}`}
+              >
+                <div className="ccf-bk-staffpick">
+                  <Avatar name={name} />
+                  <div className="ccf-bk-nm">{name}</div>
+                </div>
+              </Card>
+            )
+          })}
         </>
       )}
 
@@ -738,7 +747,8 @@ function TimeScreen({
           disabled={!canContinue}
           onClick={() => {
             if (selectedStartAt === null) return
-            onContinue(dateStr, selectedStartAt, selectedStaffId)
+            const nm = selectedStaffId === null ? null : (staffNames.get(selectedStaffId) ?? null)
+            onContinue(dateStr, selectedStartAt, selectedStaffId, nm)
           }}
           data-testid="time-continue"
         >
@@ -759,6 +769,7 @@ function ConfirmScreen({
   dateStr,
   startAt,
   staffId,
+  staffName,
   onSlotTaken,
   onDone,
 }: {
@@ -767,6 +778,7 @@ function ConfirmScreen({
   dateStr: string
   startAt: number
   staffId: number | null
+  staffName?: string | null
   onSlotTaken: () => void
   onDone: (result: BookingResult, payWith: PaymentProviderId | null) => void
 }) {
@@ -837,7 +849,9 @@ function ConfirmScreen({
         </div>
         <div className="ccf-bk-sline">
           <span className="ccf-bk-k">Kỹ thuật viên</span>
-          <span className="ccf-bk-v">{staffId !== null ? `Kỹ thuật viên #${staffId}` : 'Spa sắp xếp'}</span>
+          <span className="ccf-bk-v">
+            {staffId !== null ? (staffName ?? `Kỹ thuật viên #${staffId}`) : 'Spa sắp xếp'}
+          </span>
         </div>
         <div className="ccf-bk-sline ccf-bk-sline--total">
           <span className="ccf-bk-k">Tổng cộng</span>

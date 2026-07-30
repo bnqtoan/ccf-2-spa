@@ -96,7 +96,7 @@ routes.get('/api/availability', async (c) => {
   // preferred technician when asked. Filtering `active` in SQL keeps the
   // batched follow-up queries small; the pure function re-checks it anyway.
   const candidateSql =
-    `SELECT st.id, st.active
+    `SELECT st.id, st.active, st.name
      FROM staff st
      JOIN staff_skills ss ON ss.staff_id = st.id
      WHERE ss.skill_id = ? AND st.active = 1` + (staffId === null ? '' : ' AND st.id = ?')
@@ -104,7 +104,11 @@ routes.get('/api/availability', async (c) => {
     staffId === null
       ? db.prepare(candidateSql).bind(variant.skill_id)
       : db.prepare(candidateSql).bind(variant.skill_id, staffId)
-  const candidates = (await candidateStmt.all<Pick<Staff, 'id' | 'active'>>()).results
+  const candidates = (await candidateStmt.all<Pick<Staff, 'id' | 'active' | 'name'>>()).results
+
+  // Bản đồ id→tên của các ứng viên → client hiện TÊN thật thay vì "KTV #id"
+  // (bug: trang đặt lịch của khách chỉ có staff_ids, phải bịa "Kỹ thuật viên #2").
+  const staffNames = candidates.map((s) => ({ id: s.id, name: s.name }))
 
   // No candidate (unknown/inactive/unskilled staff, or nobody has the skill)
   // is a legitimate empty answer, not an error. `reason` lets the UI phrase WHY
@@ -158,7 +162,7 @@ routes.get('/api/availability', async (c) => {
 
   const slots = computeAvailability({ ...engineInput, now: serverNow(c) })
 
-  if (slots.length > 0) return c.json({ slots })
+  if (slots.length > 0) return c.json({ slots, staff: staffNames })
 
   // Rỗng dù có KTV đủ kỹ năng → nói ĐÚNG nguyên nhân. Phân biệt bốn ca:
   //  - no_staff_on_shift: không ai vào ca ngày đó (shiftRes rỗng).
