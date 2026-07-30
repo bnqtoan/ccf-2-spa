@@ -4,10 +4,103 @@
  * Dùng lại token tím ở src/app/styles/tokens.css, không hardcode màu mới.
  */
 
+/* ccf-su-page: KHÔNG còn tự đặt width/margin — AdminShell lo khung + width
+   thống nhất cho mọi trang admin. Giữ class cho các selector con còn tham chiếu. */
 .ccf-su-page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 20px 16px 64px;
+  padding-bottom: 24px;
+}
+
+/* Thẻ bọc nội dung — mỗi khối (form / bảng) là một card nhất quán, thay cho
+   markup trần + inline style. */
+.ccf-su-body {
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-md, 14px);
+  padding: 20px;
+}
+.ccf-su-body + .ccf-su-body {
+  margin-top: 20px;
+}
+.ccf-su-body h2 {
+  font-size: 17px;
+  font-weight: 660;
+  color: var(--ink);
+  margin: 0 0 16px;
+}
+/* Form tạo mới: cột hẹp trong card rộng (thay style maxWidth:420 inline). */
+.ccf-su-form-col {
+  display: grid;
+  gap: 12px;
+  max-width: 420px;
+}
+
+/* Bảng danh sách — thay cho <table> trần không có class thật. */
+.ccf-su-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+.ccf-su-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 0 14px 10px;
+  border-bottom: 1.5px solid var(--line);
+  white-space: nowrap;
+}
+.ccf-su-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  vertical-align: middle;
+}
+.ccf-su-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.ccf-su-table tbody tr:hover td {
+  background: var(--g-50);
+}
+.ccf-su-table .ccf-su-cell-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* select nhỏ gọn ngay trong ô bảng (đổi vai trò). */
+.ccf-su-table select {
+  min-height: 38px;
+  padding: 0 8px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--white);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+/* Badge trạng thái hoạt động / vô hiệu — thay text trần "Hoạt động". */
+.ccf-su-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 13px;
+  font-weight: 620;
+  white-space: nowrap;
+}
+.ccf-su-badge--on {
+  background: var(--g-100);
+  color: var(--g-800);
+}
+.ccf-su-badge--off {
+  background: #f0eef5;
+  color: var(--ink-3);
+}
+/* Cuộn ngang bảng trên màn hẹp, không vỡ trang. */
+.ccf-su-table-wrap {
+  overflow-x: auto;
 }
 
 .ccf-su-head h1 {

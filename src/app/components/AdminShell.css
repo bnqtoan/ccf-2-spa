@@ -1,0 +1,21 @@
+/* Khung admin dùng chung — MỘT width, MỘT nav placement, MỘT padding cho mọi
+   trang quản trị. Trước: mỗi trang tự đặt width (overview 960 / setup 720 /
+   timeline full) → nhảy layout khi chuyển trang. Nay tất cả đi qua đây. */
+.ccf-shell {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+/* Container thống nhất: rộng ~1100px, canh giữa, padding nhất quán. Mọi trang
+   admin (kể cả timeline) nằm trong khung này để layout đồng nhất. */
+.ccf-shell-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px 20px 64px;
+}
+
+@media (max-width: 640px) {
+  .ccf-shell-main {
+    padding: 14px 12px 80px;
+  }
+}
