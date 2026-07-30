@@ -6,7 +6,11 @@ model: sonnet
 effort: low
 depends_on: ["T-12"]
 touches:
-  - src/app/routes/admin/TimelinePage.tsx
+  - src/app/routes/admin/timeline/TimelinePage.tsx
+  - src/app/routes/admin/timeline/api.ts
+  - src/worker/routes/admin-schedule.ts
+  - tests/e2e/admin-timeline.spec.ts
+  - tests/api/admin-schedule.test.ts
 prd_refs: []
 owner: null
 started_at: null
