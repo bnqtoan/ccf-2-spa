@@ -37,6 +37,32 @@ function nextMondayDateStr(): string {
 
 const TARGET_DATE = nextMondayDateStr()
 
+/**
+ * Kéo-thả HTML5 THẬT trong test. Playwright `locator.dragTo()` KHÔNG mang theo
+ * một `DataTransfer` xuyên qua native drag-and-drop → `onDrop` của app đọc
+ * `getData('text/plain')` ra rỗng, drop không kích hoạt (sheet xác nhận không
+ * hiện). Đây là hạn chế của Playwright, KHÔNG phải lỗi app (trình duyệt thật của
+ * lễ tân mang DataTransfer bình thường). Helper này tự phát chuỗi sự kiện
+ * dragstart→dragenter→dragover→drop→dragend với MỘT DataTransfer dùng chung. */
+async function dragBlockToCell(page: import('@playwright/test').Page, sourceTestId: string, targetTestId: string) {
+  await page.evaluate(
+    ({ sourceTestId, targetTestId }) => {
+      const src = document.querySelector(`[data-testid="${sourceTestId}"]`)
+      const dst = document.querySelector(`[data-testid="${targetTestId}"]`)
+      if (!src || !dst) throw new Error(`drag: không thấy ${!src ? sourceTestId : targetTestId}`)
+      const dt = new DataTransfer()
+      const fire = (el: Element, type: string) =>
+        el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }))
+      fire(src, 'dragstart')
+      fire(dst, 'dragenter')
+      fire(dst, 'dragover')
+      fire(dst, 'drop')
+      fire(src, 'dragend')
+    },
+    { sourceTestId, targetTestId },
+  )
+}
+
 interface SeededItem {
   itemId: number
   staffName: string
@@ -574,20 +600,15 @@ WHERE status IN ('booked','in_service')
   })
 
   test('tạo lịch trùng slot KTV đã bận báo lỗi thân thiện SLOT_TAKEN, không lộ mã lỗi thô', async ({ page }) => {
-    const seeded = await seedBookingItem({
-      staffName: 'Trang',
-      serviceName: 'Chăm sóc móng',
-      variantName: 'Đắp bột', // 75 phút + buffer 10 -> chiếm [12:00, 13:25)
-      hour: 12,
-      customerSuffix: 'DupSlot',
-    })
-
+    // Dropdown KTV giờ đã LỌC theo availability (chỉ hiện người còn trống) — nên
+    // KHÔNG thể chọn một KTV đang bận qua UI (đúng thiết kế). Test này kiểm lớp
+    // phòng-thủ-sâu của SERVER: nếu slot bị chiếm SAU khi form đã tải KTV còn
+    // trống (race), server vẫn phải chặn bằng SLOT_TAKEN thân thiện.
+    // Cách dựng: mở form khi Trang CÒN TRỐNG @12:00, chọn Trang, RỒI mới seed một
+    // lịch chiếm 12:00 của Trang, rồi submit → server trả SLOT_TAKEN.
     await page.goto('/admin/timeline')
     await goToTargetDate(page)
-    await expect(page.getByTestId(`booking-item-${seeded.itemId}`)).toBeVisible()
 
-    // Mở "+ Đặt lịch" từ qbar (ô 12:00 của Trang không còn trống nên không bấm
-    // được ô), tự chọn đúng Trang + đúng 12:00 để chồng slot đã có.
     await page.getByTestId('create-booking-open').click()
     await expect(page.getByTestId('create-booking-sheet')).toBeVisible()
 
@@ -595,14 +616,24 @@ WHERE status IN ('booked','in_service')
     await page.getByTestId('create-booking-service-select').selectOption({ label: 'Chăm sóc móng' })
     await page.getByTestId('create-booking-variant-select').selectOption({ label: 'Đắp bột' })
     await page.getByTestId('create-booking-time').fill('12:00')
+    // Trang còn trống lúc này → chọn được từ dropdown đã lọc.
     const trangId = await staffIdOf(page, 'Trang')
     await page.getByTestId('create-booking-staff-select').selectOption(trangId)
+
+    // GIỜ mới chiếm slot 12:00 của Trang (mô phỏng race: người khác đặt trước).
+    await seedBookingItem({
+      staffName: 'Trang',
+      serviceName: 'Chăm sóc móng',
+      variantName: 'Đắp bột', // 75' + buffer 10 -> chiếm [12:00, 13:25)
+      hour: 12,
+      customerSuffix: 'DupSlot',
+    })
 
     await page.getByTestId('create-booking-submit').click()
 
     const err = page.getByTestId('create-booking-error')
     await expect(err).toBeVisible()
-    await expect(err).not.toContainText('SLOT_TAKEN')
+    await expect(err).not.toContainText('SLOT_TAKEN') // câu thân thiện, không lộ mã thô
     // Sheet KHÔNG âm thầm đóng — lễ tân vẫn thấy form để sửa giờ/KTV khác.
     await expect(page.getByTestId('create-booking-sheet')).toBeVisible()
   })
@@ -645,7 +676,7 @@ WHERE status IN ('booked','in_service')
 
     const targetCell = page.getByTestId(`cell-${lanId}-9`)
     await expect(targetCell).toBeVisible()
-    await block.dragTo(targetCell)
+    await dragBlockToCell(page, `booking-item-${seeded.itemId}`, `cell-${lanId}-9`)
 
     // Xác nhận nhẹ trước khi cam kết (card: "xác nhận nhẹ → reschedule").
     await expect(page.getByTestId('drop-confirm-sheet')).toBeVisible()
@@ -769,7 +800,7 @@ WHERE status IN ('booked','in_service')
 
     const targetCell = page.getByTestId(`cell-${maiId}-10`)
     await expect(targetCell).toBeVisible()
-    await block.dragTo(targetCell)
+    await dragBlockToCell(page, `booking-item-${seeded.itemId}`, `cell-${maiId}-10`)
 
     await expect(page.getByTestId('drop-confirm-sheet')).toBeVisible()
     await page.getByTestId('drop-confirm-submit').click()
