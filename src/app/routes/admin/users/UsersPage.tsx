@@ -6,7 +6,6 @@
 // kết kỹ thuật viên" (bắt buộc); role khác → ẩn ô đó. Server vẫn validate lại.
 
 import { useEffect, useState } from 'react'
-import AdminNav from '../../../components/AdminNav'
 import Button from '../../../components/Button'
 import Field from '../../../components/Field'
 import Notice from '../../../components/Notice'
@@ -139,7 +138,6 @@ export default function UsersPage() {
 
   return (
     <div className="ccf-su-page">
-      <AdminNav />
       <header className="ccf-su-head">
         <h1>Người dùng</h1>
         <p>Thêm/sửa/vô hiệu tài khoản, gán vai trò và liên kết kỹ thuật viên.</p>
@@ -151,9 +149,9 @@ export default function UsersPage() {
         </Notice>
       )}
 
-      <form className="ccf-su-body" onSubmit={onCreate} data-testid="user-create-form" style={{ marginBottom: 24 }}>
-        <h2 style={{ marginTop: 0 }}>Tạo tài khoản mới</h2>
-        <div style={{ display: 'grid', gap: 12, maxWidth: 420 }}>
+      <form className="ccf-su-body" onSubmit={onCreate} data-testid="user-create-form">
+        <h2>Tạo tài khoản mới</h2>
+        <div className="ccf-su-form-col">
           <Field
             label="Tên đăng nhập"
             value={username}
@@ -213,50 +211,56 @@ export default function UsersPage() {
       </form>
 
       <div className="ccf-su-body">
-        <h2 style={{ marginTop: 0 }}>Danh sách tài khoản</h2>
+        <h2>Danh sách tài khoản</h2>
         {loading ? (
           <p>Đang tải…</p>
         ) : (
-          <table className="ccf-su-table" data-testid="users-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left' }}>Tên đăng nhập</th>
-                <th style={{ textAlign: 'left' }}>Vai trò</th>
-                <th style={{ textAlign: 'left' }}>Kỹ thuật viên</th>
-                <th style={{ textAlign: 'left' }}>Trạng thái</th>
-                <th style={{ textAlign: 'left' }}>Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id} data-testid={`user-row-${u.id}`}>
-                  <td>{u.username}</td>
-                  <td>
-                    <select
-                      value={u.role}
-                      onChange={(e) => changeRole(u, e.target.value as Role)}
-                      data-testid={`user-role-${u.id}`}
-                      aria-label={`Vai trò của ${u.username}`}
-                    >
-                      <option value="owner">{ROLE_LABEL.owner}</option>
-                      <option value="receptionist">{ROLE_LABEL.receptionist}</option>
-                      <option value="technician">{ROLE_LABEL.technician}</option>
-                    </select>
-                  </td>
-                  <td>{u.staff_name ?? '—'}</td>
-                  <td data-testid={`user-active-${u.id}`}>{u.active === 1 ? 'Hoạt động' : 'Đã vô hiệu'}</td>
-                  <td style={{ display: 'flex', gap: 8 }}>
-                    <Button variant="ghost" size="sm" onClick={() => toggleActive(u)} data-testid={`user-toggle-${u.id}`}>
-                      {u.active === 1 ? 'Vô hiệu' : 'Kích hoạt'}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => resetPassword(u)} data-testid={`user-reset-${u.id}`}>
-                      Đặt lại mật khẩu
-                    </Button>
-                  </td>
+          <div className="ccf-su-table-wrap">
+            <table className="ccf-su-table" data-testid="users-table">
+              <thead>
+                <tr>
+                  <th>Tên đăng nhập</th>
+                  <th>Vai trò</th>
+                  <th>Kỹ thuật viên</th>
+                  <th>Trạng thái</th>
+                  <th>Thao tác</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.id} data-testid={`user-row-${u.id}`}>
+                    <td>{u.username}</td>
+                    <td>
+                      <select
+                        value={u.role}
+                        onChange={(e) => changeRole(u, e.target.value as Role)}
+                        data-testid={`user-role-${u.id}`}
+                        aria-label={`Vai trò của ${u.username}`}
+                      >
+                        <option value="owner">{ROLE_LABEL.owner}</option>
+                        <option value="receptionist">{ROLE_LABEL.receptionist}</option>
+                        <option value="technician">{ROLE_LABEL.technician}</option>
+                      </select>
+                    </td>
+                    <td>{u.staff_name ?? '—'}</td>
+                    <td data-testid={`user-active-${u.id}`}>
+                      <span className={`ccf-su-badge ccf-su-badge--${u.active === 1 ? 'on' : 'off'}`}>
+                        {u.active === 1 ? 'Hoạt động' : 'Đã vô hiệu'}
+                      </span>
+                    </td>
+                    <td className="ccf-su-cell-actions">
+                      <Button variant="ghost" size="sm" onClick={() => toggleActive(u)} data-testid={`user-toggle-${u.id}`}>
+                        {u.active === 1 ? 'Vô hiệu' : 'Kích hoạt'}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => resetPassword(u)} data-testid={`user-reset-${u.id}`}>
+                        Đặt lại mật khẩu
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

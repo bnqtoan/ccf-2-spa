@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import AdminNav from '../../../components/AdminNav'
 import Button from '../../../components/Button'
 import EmptyState from '../../../components/EmptyState'
 import Field from '../../../components/Field'
@@ -700,7 +699,6 @@ export default function TimelinePage() {
   if (loading && schedule === null) {
     return (
       <div className="ccf-tl-page">
-        <AdminNav />
         <p>Đang tải lịch...</p>
       </div>
     )
@@ -709,7 +707,6 @@ export default function TimelinePage() {
   if (error && schedule === null) {
     return (
       <div className="ccf-tl-page">
-        <AdminNav />
         <Notice tone="warn">{error}</Notice>
         <Button variant="ghost" onClick={loadAll}>
           Thử lại
@@ -749,7 +746,6 @@ export default function TimelinePage() {
 
   return (
     <div className="ccf-tl-page">
-      <AdminNav />
       {queueCount > 0 && (
         <div className="ccf-tl-banner" data-testid="reassign-banner">
           <div className="ccf-tl-banner-ic" aria-hidden="true">
