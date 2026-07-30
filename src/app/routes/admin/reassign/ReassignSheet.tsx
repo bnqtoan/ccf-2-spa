@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Phone } from 'lucide-react'
 import Avatar from '../../../components/Avatar'
 import Button from '../../../components/Button'
 import Notice from '../../../components/Notice'
@@ -128,7 +129,7 @@ export default function ReassignSheet({ item, onClose, onReassigned }: ReassignS
               {telHref && (
                 <div>
                   <a className="ccf-rq-tel" href={telHref} data-testid="reassign-call-customer">
-                    📞 {item.customer_phone}
+                    <Phone size="1em" className="ccf-ico-inline" /> {item.customer_phone}
                   </a>
                 </div>
               )}

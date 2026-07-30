@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Clock, SprayCan, User, type LucideIcon } from 'lucide-react'
 import StaffTab from './StaffTab'
 import ServicesTab from './ServicesTab'
 import ShiftsTab from './ShiftsTab'
@@ -6,10 +7,10 @@ import './setup.css'
 
 type TabKey = 'staff' | 'services' | 'shifts'
 
-const TABS: { key: TabKey; label: string; icon: string }[] = [
-  { key: 'staff', label: 'Nhân viên', icon: '👤' },
-  { key: 'services', label: 'Dịch vụ', icon: '🧴' },
-  { key: 'shifts', label: 'Ca làm việc', icon: '🕒' },
+const TABS: { key: TabKey; label: string; icon: LucideIcon }[] = [
+  { key: 'staff', label: 'Nhân viên', icon: User },
+  { key: 'services', label: 'Dịch vụ', icon: SprayCan },
+  { key: 'shifts', label: 'Ca làm việc', icon: Clock },
 ]
 
 /**
@@ -31,7 +32,9 @@ export default function SetupPage() {
       </header>
 
       <div className="ccf-su-tabs" role="tablist">
-        {TABS.map((t) => (
+        {TABS.map((t) => {
+          const Icon = t.icon
+          return (
           <button
             key={t.key}
             type="button"
@@ -41,9 +44,10 @@ export default function SetupPage() {
             data-testid={`setup-tab-${t.key}`}
             onClick={() => setTab(t.key)}
           >
-            <span aria-hidden="true">{t.icon}</span> {t.label}
+            <Icon size="1em" className="ccf-ico-inline" aria-hidden="true" /> {t.label}
           </button>
-        ))}
+          )
+        })}
       </div>
 
       {/* Ba tab giữ mounted song song (ẩn bằng CSS thay vì unmount) để state

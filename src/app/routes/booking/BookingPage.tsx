@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { CalendarDays, Hand, Scissors, Smile, Sparkles } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import Avatar from '../../components/Avatar'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
@@ -39,11 +41,11 @@ const ZONE_LABEL: Record<string, string> = {
   hands: 'Móng',
   face: 'Da mặt',
 }
-const ZONE_ICON: Record<string, string> = {
-  body: '💆',
-  hair: '💇',
-  hands: '💅',
-  face: '✨',
+const ZONE_ICON: Record<string, LucideIcon> = {
+  body: Sparkles,
+  hair: Scissors,
+  hands: Hand,
+  face: Smile,
 }
 
 // Số hotline của spa — theo đúng prototype/index.html dòng 646 ("028 3822 1179").
@@ -431,20 +433,23 @@ function ServiceScreen({
           >
             Tất cả
           </button>
-          {zones.map((z) => (
-            <button
-              key={z}
-              type="button"
-              className={`ccf-bk-chip ${zoneFilter === z ? 'ccf-bk-chip--sel' : ''}`}
-              onClick={() => setZoneFilter(z)}
-              data-testid={`zone-chip-${z}`}
-            >
-              <span className="ccf-bk-chip-icon" aria-hidden="true">
-                {ZONE_ICON[z] ?? '•'}
-              </span>
-              {ZONE_LABEL[z] ?? z}
-            </button>
-          ))}
+          {zones.map((z) => {
+            const ZoneIco = ZONE_ICON[z]
+            return (
+              <button
+                key={z}
+                type="button"
+                className={`ccf-bk-chip ${zoneFilter === z ? 'ccf-bk-chip--sel' : ''}`}
+                onClick={() => setZoneFilter(z)}
+                data-testid={`zone-chip-${z}`}
+              >
+                <span className="ccf-bk-chip-icon" aria-hidden="true">
+                  {ZoneIco ? <ZoneIco size="1em" /> : '•'}
+                </span>
+                {ZONE_LABEL[z] ?? z}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -672,7 +677,7 @@ function TimeScreen({
       {error && <Notice tone="warn">{error}</Notice>}
 
       {slots !== null && slots.length === 0 && (
-        <EmptyState icon="🗓️" text="Ngày này đã kín lịch. Bạn chọn ngày khác nhé." data-testid="time-empty" />
+        <EmptyState icon={<CalendarDays />} text="Ngày này đã kín lịch. Bạn chọn ngày khác nhé." data-testid="time-empty" />
       )}
 
       {(Object.entries(grouped) as [string, AvailabilitySlot[]][])
@@ -1338,7 +1343,7 @@ function ComboTimeScreen({
 
       {slots !== null && coverable && slots.length === 0 && (
         <EmptyState
-          icon="🗓️"
+          icon={<CalendarDays />}
           text={
             mode === 'parallel'
               ? 'Ngày này chưa đủ kỹ thuật viên rảnh cùng lúc cho combo. Bạn thử ngày khác nhé.'

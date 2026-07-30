@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Puzzle, User } from 'lucide-react'
 import Button from '../../../components/Button'
 import Card from '../../../components/Card'
 import Field from '../../../components/Field'
@@ -229,7 +230,7 @@ export default function StaffTab() {
       <section className="ccf-su-section">
         <h2>Danh sách nhân viên</h2>
         {staff.length === 0 ? (
-          <EmptyState icon="👤" text="Chưa có nhân viên nào." />
+          <EmptyState icon={<User />} text="Chưa có nhân viên nào." />
         ) : (
           <div data-testid="staff-list">
             {staff.map((s) => (
@@ -265,7 +266,7 @@ export default function StaffTab() {
           </Button>
         </div>
         {skills.length === 0 ? (
-          <EmptyState icon="🧩" text="Chưa có kỹ năng nào." />
+          <EmptyState icon={<Puzzle />} text="Chưa có kỹ năng nào." />
         ) : (
           <div className="ccf-su-chips" data-testid="skill-list">
             {skills.map((sk) => (

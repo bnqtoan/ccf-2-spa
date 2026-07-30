@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Leaf } from 'lucide-react'
 import Button from './Button'
 import Card from './Card'
 import Pill from './Pill'
@@ -92,7 +93,7 @@ export default function ComponentsDemo() {
 
       <section>
         <h2 className="ccf-demo-h2">EmptyState</h2>
-        <EmptyState icon="🌿" text="Chưa có lịch hẹn nào" data-testid="empty-state" />
+        <EmptyState icon={<Leaf />} text="Chưa có lịch hẹn nào" data-testid="empty-state" />
       </section>
 
       <section>

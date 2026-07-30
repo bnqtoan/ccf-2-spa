@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { CalendarDays, Phone, TriangleAlert } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../../../components/Button'
 import EmptyState from '../../../components/EmptyState'
@@ -756,7 +757,7 @@ export default function TimelinePage() {
       {queueCount > 0 && (
         <div className="ccf-tl-banner" data-testid="reassign-banner">
           <div className="ccf-tl-banner-ic" aria-hidden="true">
-            ⚠️
+            <TriangleAlert />
           </div>
           <div style={{ flex: 1 }}>
             <div className="ccf-tl-banner-title">{queueCount} lịch hẹn cần xếp lại kỹ thuật viên</div>
@@ -883,7 +884,7 @@ export default function TimelinePage() {
           }}
         />
       ) : staff.length === 0 ? (
-        <EmptyState icon="🗓️" text="Không có kỹ thuật viên nào đang hoạt động." />
+        <EmptyState icon={<CalendarDays />} text="Không có kỹ thuật viên nào đang hoạt động." />
       ) : (
         <div className="ccf-tl">
           <div className="ccf-tl-grid" style={{ '--cols': staff.length } as React.CSSProperties}>
@@ -1144,7 +1145,7 @@ export default function TimelinePage() {
                       textDecoration: 'none',
                     }}
                   >
-                    📞 {selectedItem.item.customer_phone}
+                    <Phone size="1em" className="ccf-ico-inline" /> {selectedItem.item.customer_phone}
                   </a>
                 </span>
               </div>
@@ -1417,7 +1418,7 @@ export default function TimelinePage() {
               {!addSlotsLoading && !addSlotsError && addSlots !== null && (
                 <>
                   {addSlots.length === 0 ? (
-                    <EmptyState icon="🗓️" text="Không còn khung giờ trống cho gói này trong ngày." />
+                    <EmptyState icon={<CalendarDays />} text="Không còn khung giờ trống cho gói này trong ngày." />
                   ) : (
                     <div className="ccf-tl-slots">
                       {addSlots.map((slot) => (

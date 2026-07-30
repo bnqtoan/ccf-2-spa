@@ -1,8 +1,8 @@
-import type { HTMLAttributes } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
 import './components.css'
 
 export interface EmptyStateProps extends HTMLAttributes<HTMLDivElement> {
-  icon: string
+  icon: ReactNode
   text: string
 }
 

@@ -383,6 +383,15 @@ select.ccf-field-input {
   color: var(--ink-3);
 }
 .ccf-empty .ccf-empty-icon {
-  font-size: 40px;
+  font-size: 40px; /* lucide SVG kế thừa 1em = 40px */
   margin-bottom: 10px;
+  display: flex;
+  justify-content: center;
+  color: var(--ink-3, #6e6685);
+}
+
+/* Icon SVG (lucide) đặt CẠNH chữ trong một dòng: căn về baseline chữ. Dùng
+   size="1em" để icon co theo cỡ chữ của phần tử chứa. */
+.ccf-ico-inline {
+  vertical-align: -0.125em;
 }

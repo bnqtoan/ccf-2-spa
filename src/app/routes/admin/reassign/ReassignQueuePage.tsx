@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Phone } from 'lucide-react'
 import Button from '../../../components/Button'
 import EmptyState from '../../../components/EmptyState'
 import Notice from '../../../components/Notice'
@@ -98,7 +99,7 @@ export default function ReassignQueuePage() {
                 href={`tel:${item.customer_phone.replace(/\s/g, '')}`}
                 data-testid={`queue-call-${item.item_id}`}
               >
-                📞 Gọi khách
+                <Phone size="1em" className="ccf-ico-inline" /> Gọi khách
               </a>
             )}
             <Button

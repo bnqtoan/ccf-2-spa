@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { BarChart3 } from 'lucide-react'
 import Button from '../../../components/Button'
 import EmptyState from '../../../components/EmptyState'
 import Notice from '../../../components/Notice'
@@ -180,7 +181,7 @@ export default function OverviewPage() {
       )}
 
       {staff.length === 0 ? (
-        <EmptyState icon="📊" text="Chưa có kỹ thuật viên nào đang hoạt động." />
+        <EmptyState icon={<BarChart3 />} text="Chưa có kỹ thuật viên nào đang hoạt động." />
       ) : (
         <>
           <h2 className="ccf-ov-sub">Ai bận, ai rảnh</h2>

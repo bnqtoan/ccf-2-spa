@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { BarChart3, Calendar, LogOut, RefreshCw, Settings, Users, type LucideIcon } from 'lucide-react'
 import { useSession, canAccess, type NavKey } from '../lib/useSession'
 import { logout } from '../lib/authClient'
 import './AdminNav.css'
@@ -9,12 +10,12 @@ import './AdminNav.css'
  * technician chỉ thấy "Lịch ngày"; lễ tân thấy timeline/reassign/setup; owner
  * thấy thêm Tổng quan + Người dùng. Kèm nút Đăng xuất.
  */
-const LINKS: { to: string; label: string; icon: string; key: NavKey }[] = [
-  { to: '/admin/overview', label: 'Tổng quan', icon: '📊', key: 'overview' },
-  { to: '/admin/timeline', label: 'Lịch ngày', icon: '📅', key: 'timeline' },
-  { to: '/admin/reassign', label: 'Hàng chờ xếp lại', icon: '🔁', key: 'reassign' },
-  { to: '/admin/setup', label: 'Thiết lập', icon: '⚙️', key: 'setup' },
-  { to: '/admin/users', label: 'Người dùng', icon: '👥', key: 'users' },
+const LINKS: { to: string; label: string; icon: LucideIcon; key: NavKey }[] = [
+  { to: '/admin/overview', label: 'Tổng quan', icon: BarChart3, key: 'overview' },
+  { to: '/admin/timeline', label: 'Lịch ngày', icon: Calendar, key: 'timeline' },
+  { to: '/admin/reassign', label: 'Hàng chờ xếp lại', icon: RefreshCw, key: 'reassign' },
+  { to: '/admin/setup', label: 'Thiết lập', icon: Settings, key: 'setup' },
+  { to: '/admin/users', label: 'Người dùng', icon: Users, key: 'users' },
 ]
 
 export default function AdminNav() {
@@ -39,6 +40,7 @@ export default function AdminNav() {
       <div className="ccf-adm-nav-links">
         {visible.map((l) => {
           const active = pathname === l.to
+          const Icon = l.icon
           return (
             <Link
               key={l.to}
@@ -47,7 +49,7 @@ export default function AdminNav() {
               aria-current={active ? 'page' : undefined}
               data-testid={`admin-nav-link-${l.to}`}
             >
-              <span aria-hidden="true">{l.icon}</span> {l.label}
+              <Icon size="1em" className="ccf-ico-inline" aria-hidden="true" /> {l.label}
             </Link>
           )
         })}
@@ -57,7 +59,7 @@ export default function AdminNav() {
           onClick={onLogout}
           data-testid="admin-nav-logout"
         >
-          <span aria-hidden="true">🚪</span> Đăng xuất
+          <LogOut size="1em" className="ccf-ico-inline" aria-hidden="true" /> Đăng xuất
         </button>
       </div>
     </nav>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { CalendarDays, Leaf, Phone } from 'lucide-react'
 import Button from '../../components/Button'
 import Card from '../../components/Card'
 import EmptyState from '../../components/EmptyState'
@@ -208,7 +209,7 @@ function BookingsScreen({ phone, onBack }: { phone: string; onBack: () => void }
       <p className="ccf-lk-lede">{phone}</p>
 
       {upcoming.length === 0 && (
-        <EmptyState icon="🌿" text="Bạn chưa có lịch hẹn sắp tới." data-testid="lookup-empty" />
+        <EmptyState icon={<Leaf />} text="Bạn chưa có lịch hẹn sắp tới." data-testid="lookup-empty" />
       )}
 
       {upcoming.length > 0 && <div className="ccf-lk-label">Sắp tới</div>}
@@ -235,7 +236,7 @@ function BookingsScreen({ phone, onBack }: { phone: string; onBack: () => void }
                 Còn dưới 2 tiếng nên không huỷ trực tuyến được. Bạn gọi giúp spa để đổi giờ nhé — thường
                 vẫn xếp được.
                 <a className="ccf-lk-tel" href={SPA_PHONE_TEL} data-testid={`tel-${b.item_id}`}>
-                  📞 {SPA_PHONE_DISPLAY}
+                  <Phone size="1em" className="ccf-ico-inline" /> {SPA_PHONE_DISPLAY}
                 </a>
               </Notice>
             ) : (
@@ -417,7 +418,7 @@ function RescheduleScreen({
       {notice && <Notice tone="warn" data-testid="reschedule-notice">{notice}</Notice>}
 
       {slots !== null && slots.length === 0 && (
-        <EmptyState icon="🗓️" text="Ngày này đã kín lịch. Bạn chọn ngày khác nhé." data-testid="reschedule-empty" />
+        <EmptyState icon={<CalendarDays />} text="Ngày này đã kín lịch. Bạn chọn ngày khác nhé." data-testid="reschedule-empty" />
       )}
 
       {(Object.entries(grouped) as ['Buổi sáng' | 'Buổi chiều' | 'Buổi tối', AvailabilitySlot[]][])

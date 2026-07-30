@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Clock } from 'lucide-react'
 import Button from '../../../components/Button'
 import Field from '../../../components/Field'
 import Notice from '../../../components/Notice'
@@ -227,7 +228,7 @@ export default function ShiftsTab({ active }: ShiftsTabProps) {
         </Field>
 
         {staffId === '' ? (
-          <EmptyState icon="🕒" text="Chọn một kỹ thuật viên để sửa tuần làm việc." />
+          <EmptyState icon={<Clock />} text="Chọn một kỹ thuật viên để sửa tuần làm việc." />
         ) : (
           <>
             {formError && (
@@ -355,7 +356,7 @@ export default function ShiftsTab({ active }: ShiftsTabProps) {
       <section className="ccf-su-section">
         <h2>Tóm tắt tuần theo KTV</h2>
         {staff.length === 0 ? (
-          <EmptyState icon="🕒" text="Chưa có kỹ thuật viên nào." />
+          <EmptyState icon={<Clock />} text="Chưa có kỹ thuật viên nào." />
         ) : (
           <div data-testid="shift-summary-list">
             {staff.map((s) => (

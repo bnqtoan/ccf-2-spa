@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { SprayCan } from 'lucide-react'
 import Button from '../../../components/Button'
 import Card from '../../../components/Card'
 import Field from '../../../components/Field'
@@ -239,7 +240,7 @@ export default function ServicesTab({ active }: ServicesTabProps) {
       <section className="ccf-su-section">
         <h2>Danh sách dịch vụ</h2>
         {services.length === 0 ? (
-          <EmptyState icon="🧴" text="Chưa có dịch vụ nào." />
+          <EmptyState icon={<SprayCan />} text="Chưa có dịch vụ nào." />
         ) : (
           <div data-testid="service-list">
             {services.map((s) => (
