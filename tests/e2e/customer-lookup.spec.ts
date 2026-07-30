@@ -1,58 +1,14 @@
-import { execFileSync } from 'node:child_process'
-import { writeFileSync, unlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test, expect } from '@playwright/test'
-
-// Repo root — hai cấp lên từ tests/e2e/. wrangler cần chạy ở đây để đọc đúng
-// wrangler.jsonc và đúng thư mục state cục bộ (.wrangler/state, giống
-// src/worker/db/seed.ts và vite.config.ts persistState).
-const REPO_ROOT = new URL('../../', import.meta.url).pathname
-
-/**
- * Chạy SQL thẳng vào D1 local qua `wrangler d1 execute --file=` — CÙNG cơ chế
- * `npm run db:seed:local` dùng (xem src/worker/db/seed.ts). KHÔNG dùng lệnh
- * seed đầy đủ ở đây vì nó XOÁ SẠCH mọi bảng trước khi insert — hai agent khác
- * (T-10, T-12) đang chạy song song trên cùng D1 local, xoá bảng giữa chừng sẽ
- * phá dữ liệu của họ. Thay vào đó chỉ INSERT thêm, không bao giờ DELETE.
- *
- * Ghi thẳng vào booking_items thay vì gọi POST /api/bookings vì cần start_at
- * ở một mốc chính xác (ví dụ đúng 90 phút nữa) để test "dưới 2 tiếng" TẤT
- * ĐỊNH — không phụ thuộc giờ chạy thật có rơi vào ca làm việc 09:00-19:00 hay
- * không. Cách này bỏ qua toàn bộ validateBooking (đúng như
- * tests/api/cancel-status.test.ts đã làm — xem seedBooking ở đó), là lựa chọn
- * có chủ đích: mục tiêu ở đây là test UI + cutoff huỷ, không phải test luồng
- * đặt lịch (đã có test riêng ở T-04).
- *
- * `wrangler d1 execute --local` mở trực tiếp file sqlite cục bộ — hai tiến
- * trình wrangler chạy đồng thời (nhiều test trong file này, HOẶC agent khác
- * đang chạy song song) có thể đụng SQLITE_BUSY. Test trong file này chạy
- * serial (xem `test.describe.configure` bên dưới) để loại bỏ va chạm NỘI
- * BỘ; retry-with-backoff ở đây chỉ còn để chịu được va chạm với tiến trình
- * wrangler của AGENT KHÁC đang ghi cùng lúc.
- */
-function runSql(statements: string): void {
-  const tmpFile = join(tmpdir(), `ccf-2-spa-e2e-lookup-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`)
-  writeFileSync(tmpFile, statements, 'utf8')
-  try {
-    const maxAttempts = 5
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', `--file=${tmpFile}`], {
-          cwd: REPO_ROOT,
-          stdio: 'pipe',
-        })
-        return
-      } catch (err) {
-        const busy = String((err as { stderr?: Buffer })?.stderr ?? err).includes('SQLITE_BUSY')
-        if (!busy || attempt === maxAttempts) throw err
-        execFileSync('sleep', [String(0.3 * attempt)])
-      }
-    }
-  } finally {
-    unlinkSync(tmpFile)
-  }
-}
+// T-34 — seed qua binding in-process (getPlatformProxy) thay cho spawn
+// `wrangler d1 execute`. Cùng chữ ký `runSql(sql)`, nhưng KHÔNG spawn
+// subprocess và KHÔNG cần retry SQLITE_BUSY (miniflare tự tuần tự hoá D1 trong
+// tiến trình) — xem tests/e2e/_seed.ts.
+//
+// Vẫn chỉ INSERT thêm (không DELETE) như trước: nhiều spec dùng chung D1 local,
+// global-setup lo phần wipe+seed. Ghi thẳng booking_items (bỏ qua
+// validateBooking) là chủ đích — cần neo start_at ở mốc chính xác để test
+// "dưới 2 tiếng" tất định, không phụ thuộc giờ chạy thật.
+import { runSql } from './_seed.ts'
 
 interface SeededBooking {
   phone: string
@@ -71,7 +27,7 @@ interface SeededBooking {
  * trong seed chuẩn (src/worker/db/seed.ts) — không tạo lại reference data,
  * chỉ tham chiếu bằng natural key qua subquery.
  */
-function seedCustomerBooking(offsetMinutes: number, opts: { status?: string } = {}): SeededBooking {
+async function seedCustomerBooking(offsetMinutes: number, opts: { status?: string } = {}): Promise<SeededBooking> {
   const phone = `09${Math.floor(100000000 + Math.random() * 900000000)}`.slice(0, 10)
   const nowSec = Math.floor(Date.now() / 1000)
   const startAt = nowSec + Math.round(offsetMinutes * 60)
@@ -82,7 +38,7 @@ function seedCustomerBooking(offsetMinutes: number, opts: { status?: string } = 
   const blockEndAt = endAt + bufferMin * 60
   const custName = `E2E Lookup ${phone}`
 
-  runSql(`
+  await runSql(`
 INSERT INTO customers (name, phone) VALUES ('${custName}', '${phone}');
 INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
   SELECT (SELECT id FROM customers WHERE phone = '${phone}'), ${startAt}, ${endAt}, '${status}', 'online', ${nowSec};
@@ -98,18 +54,17 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
 }
 
 test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
-  // Serial: mỗi test seed dữ liệu bằng `wrangler d1 execute --local`, một
-  // tiến trình mở thẳng file sqlite cục bộ. Chạy song song trong CÙNG file
-  // này (Playwright fullyParallel mặc định) khiến nhiều tiến trình wrangler
-  // tranh khoá cùng lúc → SQLITE_BUSY ngẫu nhiên. Serial loại bỏ va chạm đó;
-  // 8 test ở đây đủ nhanh (~15s tổng) nên đánh đổi tốc độ lấy độ tin cậy.
-  test.describe.configure({ mode: 'serial' })
+  // T-34 — BỎ `mode: 'serial'`. Serial trước đây CHỈ để tránh SQLITE_BUSY do
+  // seed qua `wrangler d1 execute` (RACE TÀI NGUYÊN). Nay seed qua binding
+  // in-process (miniflare tự tuần tự hoá D1) → hết tranh khoá liên-tiến-trình.
+  // Mỗi test seed booking theo SĐT random riêng, không chia sẻ trạng thái toàn
+  // cục → chạy song song an toàn.
 
   test('tra cứu bằng đúng số điện thoại hiện đúng các lịch hẹn của số đó, không lẫn số khác', async ({
     page,
   }) => {
-    const mine = seedCustomerBooking(180) // 3 tiếng nữa
-    const other = seedCustomerBooking(180) // số khác, không liên quan
+    const mine = await seedCustomerBooking(180) // 3 tiếng nữa
+    const other = await seedCustomerBooking(180) // số khác, không liên quan
 
     await page.goto('/lookup')
     await page.getByTestId('lookup-phone-input').fill(mine.phone)
@@ -137,7 +92,7 @@ test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
   })
 
   test('huỷ một lịch còn xa giờ hẹn thành công và lịch đó biến mất khỏi nhóm Sắp tới', async ({ page }) => {
-    const booking = seedCustomerBooking(180) // 3 tiếng nữa — thoả định nghĩa "xong" của card
+    const booking = await seedCustomerBooking(180) // 3 tiếng nữa — thoả định nghĩa "xong" của card
 
     await page.goto('/lookup')
     await page.getByTestId('lookup-phone-input').fill(booking.phone)
@@ -153,7 +108,7 @@ test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
   })
 
   test('huỷ một lịch còn xa giờ hẹn xong thì lịch đó xuất hiện trong nhóm Đã huỷ', async ({ page }) => {
-    const booking = seedCustomerBooking(180)
+    const booking = await seedCustomerBooking(180)
 
     await page.goto('/lookup')
     await page.getByTestId('lookup-phone-input').fill(booking.phone)
@@ -168,7 +123,7 @@ test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
   })
 
   test('lịch hẹn còn dưới 2 tiếng KHÔNG hiện nút Huỷ lịch mà hiện thẻ số điện thoại tel:', async ({ page }) => {
-    const booking = seedCustomerBooking(90) // 90 phút nữa — dưới ngưỡng 120
+    const booking = await seedCustomerBooking(90) // 90 phút nữa — dưới ngưỡng 120
 
     await page.goto('/lookup')
     await page.getByTestId('lookup-phone-input').fill(booking.phone)
@@ -181,7 +136,7 @@ test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
   test('thẻ số điện thoại của lịch dưới 2 tiếng là link tel: bấm gọi được, không phải chữ thường', async ({
     page,
   }) => {
-    const booking = seedCustomerBooking(90)
+    const booking = await seedCustomerBooking(90)
 
     await page.goto('/lookup')
     await page.getByTestId('lookup-phone-input').fill(booking.phone)
@@ -209,7 +164,7 @@ test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
     // render dưới tải song song trước khi qua ranh giới — cùng lý do cloud
     // session đã nới ở cancel-too-late-hotline.spec.ts.
     const MARGIN_SEC = 30
-    const booking = seedCustomerBooking(120 + MARGIN_SEC / 60)
+    const booking = await seedCustomerBooking(120 + MARGIN_SEC / 60)
     // Mốc cutoff bám theo startAt THỰC mà helper đã seed (helper tự lấy now nội
     // bộ), không tự tính lại → không lệch vài ms giữa hai lần đọc đồng hồ.
     const cutoffAt = booking.startAt - 120 * 60
@@ -243,8 +198,8 @@ test.describe('Tra cứu lịch bằng SĐT + huỷ lịch', () => {
   })
 
   test('nút Huỷ lịch và thẻ số điện thoại đều có vùng chạm tối thiểu 48px', async ({ page }) => {
-    const farBooking = seedCustomerBooking(180)
-    const nearBooking = seedCustomerBooking(90)
+    const farBooking = await seedCustomerBooking(180)
+    const nearBooking = await seedCustomerBooking(90)
 
     await page.goto('/lookup')
     await page.getByTestId('lookup-phone-input').fill(farBooking.phone)

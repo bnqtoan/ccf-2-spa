@@ -1,24 +1,7 @@
-import { execFileSync } from 'node:child_process'
-import { unlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test, expect } from '@playwright/test'
 import { createFlowFixture, randomPhone } from './helpers'
-
-const REPO_ROOT = new URL('../../../', import.meta.url).pathname
-
-function runSql(statements: string): void {
-  const file = join(tmpdir(), `ccf-e2e-cutoff-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`)
-  writeFileSync(file, statements, 'utf8')
-  try {
-    execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', `--file=${file}`], {
-      cwd: REPO_ROOT,
-      stdio: 'pipe',
-    })
-  } finally {
-    unlinkSync(file)
-  }
-}
+// T-34 — seed qua binding in-process thay cho spawn `wrangler d1 execute`.
+import { runSql } from '../_seed.ts'
 
 test('khách huỷ lịch trong vòng 2 tiếng nhận 409 CANCEL_TOO_LATE và giao diện hiện hotline thay vì lỗi', async ({ page, request }) => {
   // Test này CỐ Ý chờ đồng hồ thật vượt ngưỡng cutoff (~MARGIN_SEC giây) nên
@@ -42,7 +25,7 @@ test('khách huỷ lịch trong vòng 2 tiếng nhận 409 CANCEL_TOO_LATE và g
   const now = Math.floor(Date.now() / 1000)
   const startAt = now + 120 * 60 + MARGIN_SEC
   const cutoffAt = startAt - 120 * 60 // = now + MARGIN_SEC
-  runSql(`
+  await runSql(`
 INSERT INTO customers (name, phone) VALUES ('${name}', '${phone}');
 INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
   SELECT id, ${startAt}, ${startAt + 30 * 60}, 'booked', 'online', ${now} FROM customers WHERE phone = '${phone}';

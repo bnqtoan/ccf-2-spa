@@ -1,40 +1,9 @@
-import { execFileSync } from 'node:child_process'
-import { writeFileSync, unlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test, expect } from '@playwright/test'
-
-// Repo root — hai cấp lên từ tests/e2e/. Cùng cơ chế seed trực tiếp D1 local
-// mà tests/e2e/customer-lookup.spec.ts đã dùng (xem comment ở đó cho lý do
-// đầy đủ): T-10/T-11 chạy song song trên cùng D1 local, nên chỉ INSERT,
-// không bao giờ DELETE, và random hoá dữ liệu để không đụng nhau.
-const REPO_ROOT = new URL('../../', import.meta.url).pathname
-
-function runSql(statements: string): void {
-  const tmpFile = join(
-    tmpdir(),
-    `ccf-2-spa-e2e-timeline-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`,
-  )
-  writeFileSync(tmpFile, statements, 'utf8')
-  try {
-    const maxAttempts = 5
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', `--file=${tmpFile}`], {
-          cwd: REPO_ROOT,
-          stdio: 'pipe',
-        })
-        return
-      } catch (err) {
-        const busy = String((err as { stderr?: Buffer })?.stderr ?? err).includes('SQLITE_BUSY')
-        if (!busy || attempt === maxAttempts) throw err
-        execFileSync('sleep', [String(0.3 * attempt)])
-      }
-    }
-  } finally {
-    unlinkSync(tmpFile)
-  }
-}
+// T-34 — seed + đọc D1 local qua binding in-process (getPlatformProxy) thay cho
+// spawn `wrangler d1 execute`. Chỉ INSERT thêm (không DELETE), global-setup lo
+// wipe+seed; random hoá dữ liệu để nhiều spec không đụng nhau. Xem
+// tests/e2e/_seed.ts.
+import { runSql, querySql } from './_seed.ts'
 
 const SPA_TZ = 'Asia/Ho_Chi_Minh'
 
@@ -76,7 +45,7 @@ interface SeededItem {
 /** Seed một appointment + booking_item thật, neo giờ CỐ ĐỊNH trên TARGET_DATE
  * (không phụ thuộc giờ chạy test). Dùng natural key (tên KTV/dịch vụ) từ seed
  * chuẩn src/worker/db/seed.ts — không tạo lại reference data. */
-function seedBookingItem(opts: {
+async function seedBookingItem(opts: {
   staffName: string
   serviceName: string
   variantName: string
@@ -87,7 +56,7 @@ function seedBookingItem(opts: {
   customerSuffix: string
   /** T-32: SĐT khách — mặc định NULL (khách lẻ vãng lai, CONVENTIONS §4). */
   customerPhone?: string | null
-}): SeededItem {
+}): Promise<SeededItem> {
   const { staffName, serviceName, variantName, hour, status = 'booked', source = 'online', customerSuffix } = opts
   const minute = opts.minute ?? 0
   const customerPhone = opts.customerPhone ?? null
@@ -96,7 +65,7 @@ function seedBookingItem(opts: {
   const custName = `E2E TL ${customerSuffix} ${Date.now()}-${Math.floor(Math.random() * 100000)}`
   const phoneSql = customerPhone === null ? 'NULL' : `'${customerPhone}'`
 
-  runSql(`
+  await runSql(`
 INSERT INTO customers (name, phone) VALUES ('${custName}', ${phoneSql});
 INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
   SELECT (SELECT id FROM customers WHERE name = '${custName}'),
@@ -118,45 +87,37 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
   WHERE s.name = '${serviceName}' AND sv.name = '${variantName}';
 `)
 
-  const idRes = execFileSync(
-    'npx',
-    [
-      'wrangler',
-      'd1',
-      'execute',
-      'DB',
-      '--local',
-      '--json',
-      '--command',
-      `SELECT bi.id AS id FROM booking_items bi JOIN appointments a ON a.id = bi.appointment_id JOIN customers c ON c.id = a.customer_id WHERE c.name = '${custName}'`,
-    ],
-    { cwd: REPO_ROOT, stdio: 'pipe' },
-  ).toString()
-  const parsed = JSON.parse(idRes) as [{ results: { id: number }[] }]
-  const row = parsed[0]?.results[0]
+  const rows = await querySql<{ id: number }>(
+    `SELECT bi.id AS id FROM booking_items bi JOIN appointments a ON a.id = bi.appointment_id JOIN customers c ON c.id = a.customer_id WHERE c.name = '${custName}'`,
+  )
+  const row = rows[0]
   if (row === undefined) throw new Error(`Seed thất bại: không tìm thấy booking_item vừa tạo cho ${custName}`)
   return { itemId: row.id, staffName }
 }
 
 /** Seed một time-off phủ đúng khoảng [hourStart,hourEnd) của TARGET_DATE cho
  * một KTV — dùng để tạo booking mồ côi tất định. */
-function seedTimeOff(staffName: string, hourStart: number, hourEnd: number): void {
+async function seedTimeOff(staffName: string, hourStart: number, hourEnd: number): Promise<void> {
   const startAt = localToEpoch(TARGET_DATE, hourStart)
   const endAt = localToEpoch(TARGET_DATE, hourEnd)
-  runSql(`
+  await runSql(`
 INSERT INTO time_off (staff_id, start_at, end_at, reason)
   SELECT id, ${startAt}, ${endAt}, 'E2E nghỉ đột xuất' FROM staff WHERE name = '${staffName}';
 `)
 }
 
 test.describe('Admin — timeline theo cột KTV', () => {
-  // Serial: mỗi test ghi thẳng D1 local qua `wrangler d1 execute --local`,
-  // một tiến trình mở thẳng file sqlite — chạy song song NỘI BỘ file này gây
-  // SQLITE_BUSY ngẫu nhiên (giống lý do ở customer-lookup.spec.ts).
+  // Serial vì RACE LOGIC, KHÔNG phải race tài nguyên (T-34): các test trong
+  // file này bật/tắt BANNER hàng chờ reassign — vốn tính trên hàng chờ TOÀN
+  // CỤC (GET /api/admin/reassign-queue, không lọc theo ngày/fixture). Hai test
+  // chạy đan xen thì orphan của test này lọt vào khẳng định "banner rỗng" của
+  // test kia. (Race tài nguyên SQLITE_BUSY do spawn wrangler đã bị T-34 xoá —
+  // nay seed qua binding in-process.) File này ở project chromium-shared-queue
+  // (workers:1) cũng vì lý do LOGIC toàn-cục này.
   test.describe.configure({ mode: 'serial' })
 
   test('booking hiện đúng cột của đúng KTV tại đúng vị trí giờ trên timeline', async ({ page }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút',
@@ -180,7 +141,7 @@ test.describe('Admin — timeline theo cột KTV', () => {
   })
 
   test('buffer sau mỗi block hiện thành dải mờ riêng biệt với phần chính của block', async ({ page }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '90 phút', // buffer_after_min = 15 — dải buffer đủ lớn để đo
@@ -206,21 +167,21 @@ test.describe('Admin — timeline theo cột KTV', () => {
   })
 
   test('item mồ côi hiện màu cảnh báo khác với booking bình thường', async ({ page }) => {
-    const normal = seedBookingItem({
+    const normal = await seedBookingItem({
       staffName: 'Mai',
       serviceName: 'Chăm sóc móng',
       variantName: 'Sơn gel',
       hour: 9,
       customerSuffix: 'Normal',
     })
-    const orphan = seedBookingItem({
+    const orphan = await seedBookingItem({
       staffName: 'Trang',
       serviceName: 'Chăm sóc da mặt',
       variantName: 'Cơ bản',
       hour: 15,
       customerSuffix: 'Orphan',
     })
-    seedTimeOff('Trang', 14, 19) // phủ đúng booking lúc 15h của Trang -> mồ côi
+    await seedTimeOff('Trang', 14, 19) // phủ đúng booking lúc 15h của Trang -> mồ côi
 
     await page.goto('/admin/timeline')
     await goToTargetDate(page)
@@ -237,14 +198,14 @@ test.describe('Admin — timeline theo cột KTV', () => {
   })
 
   test('item mồ côi nổi lên trên khối nghỉ đột xuất, không bị khối nghỉ che khuất', async ({ page }) => {
-    const orphan = seedBookingItem({
+    const orphan = await seedBookingItem({
       staffName: 'Yen',
       serviceName: 'Chăm sóc da mặt',
       variantName: 'Chuyên sâu',
       hour: 16,
       customerSuffix: 'ZOrder',
     })
-    seedTimeOff('Yen', 14, 19) // phủ đúng booking lúc 16h -> mồ côi, đè bởi khối nghỉ 14-19h
+    await seedTimeOff('Yen', 14, 19) // phủ đúng booking lúc 16h -> mồ côi, đè bởi khối nghỉ 14-19h
 
     await page.goto('/admin/timeline')
     await goToTargetDate(page)
@@ -280,14 +241,14 @@ test.describe('Admin — timeline theo cột KTV', () => {
   })
 
   test('banner hàng chờ hiện ra khi có ít nhất một item mồ côi', async ({ page }) => {
-    const orphan = seedBookingItem({
+    const orphan = await seedBookingItem({
       staffName: 'Lan',
       serviceName: 'Cắt gội',
       variantName: 'Cắt + gội',
       hour: 15,
       customerSuffix: 'BannerOn',
     })
-    seedTimeOff('Lan', 14, 19)
+    await seedTimeOff('Lan', 14, 19)
 
     await page.goto('/admin/timeline')
     await goToTargetDate(page)
@@ -304,7 +265,7 @@ test.describe('Admin — timeline theo cột KTV', () => {
     // orphan do CHÍNH bộ test này tạo ra (nhận diện qua tiền tố 'E2E TL' đã
     // dùng cho mọi customer ở file này) bằng một UPDATE hợp lệ (huỷ, không
     // xoá dòng — CONVENTIONS §3), không đụng dữ liệu của agent khác.
-    runSql(`
+    await runSql(`
 UPDATE booking_items SET status = 'cancelled', cancelled_at = ${Math.floor(Date.now() / 1000)}
 WHERE status IN ('booked','in_service')
   AND appointment_id IN (
@@ -312,14 +273,14 @@ WHERE status IN ('booked','in_service')
     WHERE c.name LIKE 'E2E TL %'
   );`)
 
-    const orphan = seedBookingItem({
+    const orphan = await seedBookingItem({
       staffName: 'Mai',
       serviceName: 'Chăm sóc móng',
       variantName: 'Đắp bột',
       hour: 15,
       customerSuffix: 'BannerOff',
     })
-    seedTimeOff('Mai', 14, 19)
+    await seedTimeOff('Mai', 14, 19)
 
     await page.goto('/admin/timeline')
     await goToTargetDate(page)
@@ -330,7 +291,7 @@ WHERE status IN ('booked','in_service')
     // (T-13 và flows/ cũng tạo orphan song song) hàng chờ vẫn còn item của
     // file khác và banner không bao giờ biến mất — đỏ khi chạy chung, xanh
     // khi chạy riêng. Vẫn là huỷ hợp lệ, không xoá dòng (CONVENTIONS §3).
-    runSql(`
+    await runSql(`
 UPDATE booking_items SET status = 'cancelled', cancelled_at = ${Math.floor(Date.now() / 1000)}
 WHERE status IN ('booked','in_service')
   AND EXISTS (
@@ -346,7 +307,7 @@ WHERE status IN ('booked','in_service')
   })
 
   test('block dịch vụ ngắn dưới 30 phút chỉ hiện tên khách, không hiện tên dịch vụ', async ({ page }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Lan',
       serviceName: 'Cắt gội',
       variantName: 'Gội cơ bản', // 30 phút, buffer 5 -> hgt nhỏ, rơi dưới ngưỡng short
@@ -368,7 +329,7 @@ WHERE status IN ('booked','in_service')
   })
 
   test('bấm vào một block mở sheet hiện đúng thông tin của booking đó', async ({ page }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút',
@@ -395,7 +356,7 @@ WHERE status IN ('booked','in_service')
     // Huong@15:00") @11:00, "Sơn gel" (45'+5' buffer, xong 11:50) — Mai chỉ có
     // lịch ở 9h ("Sơn gel", xong 09:50) và bị time_off 14-19h ở test trước đó
     // trong file này, nên 11h chắc chắn trống.
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Mai',
       serviceName: 'Chăm sóc móng',
       variantName: 'Sơn gel',
@@ -422,7 +383,7 @@ WHERE status IN ('booked','in_service')
     // Mai chỉ có "Sơn gel"@9h (xong 09:50) + "Sơn gel"@11h (test phone bên
     // trên, xong 11:50) + time_off 14-19h (test trước đó trong file) — 13h
     // chắc chắn trống.
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Mai',
       serviceName: 'Chăm sóc móng',
       variantName: 'Sơn gel',
@@ -442,7 +403,7 @@ WHERE status IN ('booked','in_service')
   test('đổi trạng thái sang đang làm trong sheet cập nhật ngay màu block trên timeline không cần tải lại trang', async ({
     page,
   }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút',
@@ -469,7 +430,7 @@ WHERE status IN ('booked','in_service')
   // T-25: "+ Thêm dịch vụ" trong sheet booking — backend đã có
   // (POST /api/admin/appointments/:id/items), card này chỉ dựng UI.
   test('lễ tân bấm booking, thêm dịch vụ khác vùng cơ thể, item mới hiện ngay trên timeline', async ({ page }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút', // body_zone 'body'
@@ -515,7 +476,7 @@ WHERE status IN ('booked','in_service')
   test('thêm dịch vụ trùng vùng cơ thể với dịch vụ đang làm bị chặn, báo thân thiện không lộ mã lỗi thô', async ({
     page,
   }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút', // body_zone 'body', chiếm [09:00, 10:10) kể cả buffer
@@ -613,7 +574,7 @@ WHERE status IN ('booked','in_service')
   })
 
   test('tạo lịch trùng slot KTV đã bận báo lỗi thân thiện SLOT_TAKEN, không lộ mã lỗi thô', async ({ page }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Trang',
       serviceName: 'Chăm sóc móng',
       variantName: 'Đắp bột', // 75 phút + buffer 10 -> chiếm [12:00, 13:25)
@@ -652,23 +613,11 @@ WHERE status IN ('booked','in_service')
   // THAO TÁC TRÊN UI thật + xác nhận DB đổi đúng.
 
   /** Đọc staff_id + start_at của một booking_item thẳng từ D1 (kiểm DB sau kéo). */
-  function readItem(itemId: number): { staff_id: number; start_at: number; status: string } {
-    const out = execFileSync(
-      'npx',
-      [
-        'wrangler',
-        'd1',
-        'execute',
-        'DB',
-        '--local',
-        '--json',
-        '--command',
-        `SELECT staff_id, start_at, status FROM booking_items WHERE id = ${itemId}`,
-      ],
-      { cwd: REPO_ROOT, stdio: 'pipe' },
-    ).toString()
-    const parsed = JSON.parse(out) as [{ results: { staff_id: number; start_at: number; status: string }[] }]
-    const row = parsed[0]?.results[0]
+  async function readItem(itemId: number): Promise<{ staff_id: number; start_at: number; status: string }> {
+    const rows = await querySql<{ staff_id: number; start_at: number; status: string }>(
+      `SELECT staff_id, start_at, status FROM booking_items WHERE id = ${itemId}`,
+    )
+    const row = rows[0]
     if (row === undefined) throw new Error(`Không đọc được booking_item ${itemId}`)
     return row
   }
@@ -679,7 +628,7 @@ WHERE status IN ('booked','in_service')
     // Huong + Lan đều có skill Massage (seed). Nguồn: Huong@18:00 (giờ trống
     // trong file này). Đích: cột Lan, dòng 09:00 — Lan KHÔNG bị time-off 14-19h
     // mà các test trên seed, và 09:00 của Lan còn trống.
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút',
@@ -708,7 +657,7 @@ WHERE status IN ('booked','in_service')
     await expect(cellAt9.getByTestId(`booking-item-${seeded.itemId}`)).toBeVisible()
 
     // DB đổi thật: staff = Lan, giờ = 09:00 TARGET_DATE.
-    const row = readItem(seeded.itemId)
+    const row = await readItem(seeded.itemId)
     expect(String(row.staff_id)).toBe(lanId)
     expect(row.start_at).toBe(localToEpoch(TARGET_DATE, 9, 0))
     expect(row.status).toBe('booked')
@@ -717,7 +666,7 @@ WHERE status IN ('booked','in_service')
   test('nút "Đổi giờ / Đổi KTV" trong sheet → chọn giờ mới → xác nhận → block dời sang giờ mới', async ({
     page,
   }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút',
@@ -746,7 +695,7 @@ WHERE status IN ('booked','in_service')
     const cellAt11 = page.getByTestId(`cell-${huongId}-11`)
     await expect(cellAt11.getByTestId(`booking-item-${seeded.itemId}`)).toBeVisible()
 
-    const row = readItem(seeded.itemId)
+    const row = await readItem(seeded.itemId)
     expect(row.start_at).toBe(localToEpoch(TARGET_DATE, 11, 0))
     expect(String(row.staff_id)).toBe(huongId)
   })
@@ -757,14 +706,14 @@ WHERE status IN ('booked','in_service')
     // Item cần đổi: Huong@16:00 (giữa lưới, không bị AdminNav sticky ở đỉnh che
     // click). Slot đích đã BẬN: blocker Huong@14:00. Đổi victim → 14:00 (giữ
     // Huong) đè đúng slot blocker → SLOT_TAKEN, item cũ Y NGUYÊN.
-    const victim = seedBookingItem({
+    const victim = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút',
       hour: 16,
       customerSuffix: 'RsTaken',
     })
-    const blocker = seedBookingItem({
+    const blocker = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút',
@@ -791,7 +740,7 @@ WHERE status IN ('booked','in_service')
     await expect(page.getByTestId('reschedule-sheet')).toBeVisible()
 
     // BẤT BIẾN: item cũ Y NGUYÊN ở 16:00, không mất lịch.
-    const row = readItem(victim.itemId)
+    const row = await readItem(victim.itemId)
     expect(row.start_at).toBe(localToEpoch(TARGET_DATE, 16, 0))
     expect(row.status).toBe('booked')
     expect(blocker.itemId).toBeGreaterThan(0)
@@ -802,7 +751,7 @@ WHERE status IN ('booked','in_service')
   }) => {
     // Huong@11:30 (Massage). Mai chỉ có skill Móng (seed) → kéo sang cột Mai
     // phải bị chặn STAFF_LACKS_SKILL, item cũ giữ nguyên.
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút',
@@ -833,7 +782,7 @@ WHERE status IN ('booked','in_service')
 
     // DB KHÔNG đổi: vẫn cột Huong, vẫn 11:30.
     const huongId = await staffIdOf(page, 'Huong')
-    const row = readItem(seeded.itemId)
+    const row = await readItem(seeded.itemId)
     expect(String(row.staff_id)).toBe(huongId)
     expect(row.start_at).toBe(localToEpoch(TARGET_DATE, 11, 30))
   })
@@ -856,7 +805,7 @@ WHERE status IN ('booked','in_service')
   })
 
   test('ngày có lịch hiện số lịch hẹn khác với ngày trống trên week view', async ({ page }) => {
-    const seeded = seedBookingItem({
+    const seeded = await seedBookingItem({
       staffName: 'Huong',
       serviceName: 'Massage toàn thân',
       variantName: '60 phút',

@@ -1,43 +1,15 @@
-import { execFileSync } from 'node:child_process'
-import { writeFileSync, unlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test, expect } from '@playwright/test'
-
-// E2E cho G5 — khách tự ĐỔI GIỜ (T-24). Cùng cơ chế seed với
-// customer-lookup.spec.ts: ghi thẳng D1 local qua `wrangler d1 execute
-// --local`, chỉ INSERT (không DELETE) để không đụng dữ liệu agent khác.
-const REPO_ROOT = new URL('../../', import.meta.url).pathname
-
-function runSql(statements: string): void {
-  const tmpFile = join(tmpdir(), `ccf-2-spa-e2e-rs-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`)
-  writeFileSync(tmpFile, statements, 'utf8')
-  try {
-    const maxAttempts = 5
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', `--file=${tmpFile}`], {
-          cwd: REPO_ROOT,
-          stdio: 'pipe',
-        })
-        return
-      } catch (err) {
-        const busy = String((err as { stderr?: Buffer })?.stderr ?? err).includes('SQLITE_BUSY')
-        if (!busy || attempt === maxAttempts) throw err
-        execFileSync('sleep', [String(0.3 * attempt)])
-      }
-    }
-  } finally {
-    unlinkSync(tmpFile)
-  }
-}
+// E2E cho G5 — khách tự ĐỔI GIỜ (T-24). T-34 — seed qua binding in-process
+// (getPlatformProxy) thay cho spawn `wrangler d1 execute`; chỉ INSERT (không
+// DELETE), global-setup lo wipe+seed. Xem tests/e2e/_seed.ts.
+import { runSql } from './_seed.ts'
 
 /**
  * Seed 1 khách + appointment + booking_item 'booked' cách `offsetMinutes` phút
  * so với BÂY GIỜ THẬT, dùng staff 'Lan' + variant 'Massage toàn thân'/'60 phút'
  * của seed chuẩn. Trả về phone để tra cứu.
  */
-function seedCustomerBooking(offsetMinutes: number): { phone: string; startAt: number } {
+async function seedCustomerBooking(offsetMinutes: number): Promise<{ phone: string; startAt: number }> {
   const phone = `09${Math.floor(100000000 + Math.random() * 900000000)}`.slice(0, 10)
   const nowSec = Math.floor(Date.now() / 1000)
   const startAt = nowSec + Math.round(offsetMinutes * 60)
@@ -47,7 +19,7 @@ function seedCustomerBooking(offsetMinutes: number): { phone: string; startAt: n
   const blockEndAt = endAt + bufferMin * 60
   const custName = `E2E Reschedule ${phone}`
 
-  runSql(`
+  await runSql(`
 INSERT INTO customers (name, phone) VALUES ('${custName}', '${phone}');
 INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
   SELECT (SELECT id FROM customers WHERE phone = '${phone}'), ${startAt}, ${endAt}, 'booked', 'online', ${nowSec};
@@ -63,12 +35,13 @@ INSERT INTO booking_items (appointment_id, staff_id, variant_id, start_at, end_a
 }
 
 test.describe('Khách tự đổi giờ (reschedule)', () => {
-  // Serial: seed qua wrangler d1 execute --local (một tiến trình mở thẳng
-  // sqlite) — chạy song song trong cùng file dễ SQLITE_BUSY.
-  test.describe.configure({ mode: 'serial' })
+  // T-34 — BỎ `mode: 'serial'`. Serial trước đây chỉ để tránh SQLITE_BUSY do
+  // hai test seed qua `wrangler d1 execute` (RACE TÀI NGUYÊN). Nay seed qua
+  // binding in-process — miniflare tự tuần tự hoá D1 trong tiến trình, không
+  // còn tranh khoá liên-tiến-trình → hai test chạy song song an toàn.
 
   test('khách mở lookup → Đổi giờ → chọn giờ mới → thấy lịch ở giờ mới, không mất lịch', async ({ page }) => {
-    const booking = seedCustomerBooking(180) // 3 tiếng nữa → >2h, hiện được nút Đổi giờ
+    const booking = await seedCustomerBooking(180) // 3 tiếng nữa → >2h, hiện được nút Đổi giờ
 
     await page.goto('/lookup')
     await page.getByTestId('lookup-phone-input').fill(booking.phone)
@@ -85,18 +58,55 @@ test.describe('Khách tự đổi giờ (reschedule)', () => {
     // Màn đổi giờ: dải ngày + lưới slot của đúng dịch vụ đó.
     await expect(page.getByTestId('reschedule-dates')).toBeVisible()
 
-    // Chọn một ngày trong tương lai (ngày thứ 3 trong dải — chắc chắn không rơi
-    // vào "dưới 2h" và ca 'Lan' phủ đủ) rồi bấm slot đầu tiên khả dụng.
+    // Chọn một ngày trong tương lai có ca làm việc thật của 'Lan'. KHÔNG dùng
+    // index cứng (`nth(3)`): seed cho ca Mon–Sat (weekday 1–6), CHỦ NHẬT nghỉ
+    // (xem src/worker/db/seed.ts) → nếu ngày thứ 4 trong dải rơi đúng Chủ nhật
+    // thì availability trả rỗng, lưới `rs-slot-` không bao giờ hiện và test đỏ
+    // theo NGÀY-TRONG-TUẦN lúc chạy (bom hẹn giờ như CONVENTIONS §8 cảnh báo).
+    // Thay vào đó: đọc ISO date từ chính testid của từng chip, chọn chip đầu
+    // tiên là ngày làm việc (KHÔNG Chủ nhật) cách hôm nay >= 2 NGÀY.
+    //
+    // Vì sao >= 2 ngày, không phải "ngày mai": spec anh em (customer-lookup,
+    // cancel-too-late) seed booking cho 'Lan' cách "bây giờ" tối đa ~180 phút.
+    // Chạy sát nửa đêm thì +180' tràn sang HÔM SAU, chiếm mất các slot sớm của
+    // ngày mai → slot đầu ngày mai đổi bất định giữa các lần chạy. Ngày cách
+    // >= 48h nằm ngoài tầm với của mọi seed anh em → slot ổn định.
     const dateChips = page.locator('[data-testid^="rs-date-"]')
-    await dateChips.nth(3).click()
+    const chipCount = await dateChips.count()
+    let chosenChip = null
+    for (let i = 2; i < chipCount; i++) {
+      const testId = (await dateChips.nth(i).getAttribute('data-testid')) ?? ''
+      const iso = testId.replace('rs-date-', '') // 'YYYY-MM-DD'
+      const [y, m, d] = iso.split('-').map(Number) as [number, number, number]
+      // Weekday theo lịch (0 = Chủ nhật). Dùng UTC để không lệch theo timezone máy chạy.
+      const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+      if (weekday !== 0) {
+        chosenChip = dateChips.nth(i)
+        break
+      }
+    }
+    expect(chosenChip, 'phải có ít nhất một ngày làm việc (không phải Chủ nhật) trong dải 14 ngày').not.toBeNull()
+    await chosenChip!.click()
 
+    // Chốt slot theo TESTID CỐ ĐỊNH, không theo `.first()` đọc-rồi-bấm. Lưới
+    // slot có thể refetch/re-render (availability đổi khi spec anh em seed
+    // booking cho 'Lan') → nếu đọc nhãn ở slot-đầu rồi mới bấm, phần tử đầu có
+    // thể đã đổi giữa hai thao tác: bấm nhầm giờ khác giờ vừa đọc → hàng
+    // ".ccf-lk-when" hiện giờ đã cam kết KHÁC nhãn đã đọc, đỏ ngẫu nhiên. Ở đây:
+    // đọc testid (rs-slot-<start_at>) của slot đầu MỘT lần, rồi mọi thao tác sau
+    // đều neo vào ĐÚNG testid đó — nhãn kỳ vọng suy ra từ chính start_at đã chốt.
     const firstSlot = page.locator('[data-testid^="rs-slot-"]').first()
     await expect(firstSlot).toBeVisible()
-    const newTimeLabel = (await firstSlot.textContent())?.trim() ?? ''
-    await firstSlot.click()
+    const slotTestId = (await firstSlot.getAttribute('data-testid')) ?? ''
+    const chosenSlot = page.getByTestId(slotTestId)
+    const newTimeLabel = (await chosenSlot.textContent())?.trim() ?? ''
+    await chosenSlot.click()
 
-    // Thẻ "Giờ mới" xác nhận lựa chọn trước khi cam kết.
-    await expect(page.getByTestId('reschedule-chosen')).toBeVisible()
+    // Thẻ "Giờ mới" xác nhận đúng slot vừa chốt hiển thị nhãn giờ đã đọc — chặn
+    // trường hợp bấm trúng slot khác trước khi cam kết.
+    const chosen = page.getByTestId('reschedule-chosen')
+    await expect(chosen).toBeVisible()
+    await expect(chosen).toContainText(newTimeLabel)
 
     await page.getByTestId('reschedule-confirm').click()
 
@@ -110,7 +120,7 @@ test.describe('Khách tự đổi giờ (reschedule)', () => {
   })
 
   test('lịch dưới 2 tiếng KHÔNG hiện nút Đổi giờ (chỉ còn thẻ hotline)', async ({ page }) => {
-    const booking = seedCustomerBooking(90) // 90 phút nữa — dưới ngưỡng 120
+    const booking = await seedCustomerBooking(90) // 90 phút nữa — dưới ngưỡng 120
 
     await page.goto('/lookup')
     await page.getByTestId('lookup-phone-input').fill(booking.phone)
