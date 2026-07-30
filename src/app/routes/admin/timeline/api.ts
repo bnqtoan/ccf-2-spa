@@ -39,6 +39,9 @@ export interface ScheduleStaff {
   name: string
   items: ScheduleItem[]
   time_off: ScheduleTimeOff[]
+  /** Ca làm việc của NGÀY đang xem (phút trong ngày). null = không có ca hôm đó
+   *  → UI tô mờ cột. Chỉ có ở day-mode (?date=); week-mode không kèm. */
+  shift?: { start_min: number; end_min: number } | null
 }
 
 export interface ScheduleResponse {

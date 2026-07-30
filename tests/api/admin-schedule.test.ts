@@ -1,7 +1,7 @@
 import { env, exports } from 'cloudflare:workers'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import migrationSql from '../../migrations/0001_init.sql?raw'
-import { localDayBounds } from '../../src/worker/lib/time.ts'
+import { localDayBounds, weekdayOf } from '../../src/worker/lib/time.ts'
 import { issueSessionToken, SESSION_COOKIE, type AuthUser } from '../../src/worker/lib/auth.ts'
 import { adminCookieHeader } from './_authCookie.ts'
 
@@ -94,6 +94,13 @@ async function insertTimeOff(staffId: number, startAt: number, endAt: number, re
     .bind(staffId, startAt, endAt, reason)
     .first<{ id: number }>()
   return r!.id
+}
+
+async function insertShift(staffId: number, weekday: number, startMin: number, endMin: number): Promise<void> {
+  await db
+    .prepare('INSERT INTO work_shifts (staff_id, weekday, start_min, end_min) VALUES (?, ?, ?, ?)')
+    .bind(staffId, weekday, startMin, endMin)
+    .run()
 }
 
 async function seedBooking(
@@ -195,6 +202,39 @@ describe('GET /api/admin/schedule', () => {
     const lanEntry = body.staff.find((s: any) => s.id === lan)
     expect(lanEntry).toBeDefined()
     expect(lanEntry.items).toEqual([])
+  })
+
+  it('KTV CÓ ca weekday của ngày → trả shift {start_min,end_min}', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    await insertShift(lan, weekdayOf(DATE), 540, 1140) // 09:00–19:00 đúng weekday
+
+    const { body } = await getSchedule(DATE)
+    const lanEntry = body.staff.find((s: any) => s.id === lan)
+    expect(lanEntry.shift).toEqual({ start_min: 540, end_min: 1140 })
+  })
+
+  it('KTV KHÔNG có ca weekday của ngày → shift = null (client tô mờ cột)', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    // Ca chỉ có ở weekday KHÁC → không áp cho DATE.
+    await insertShift(lan, (weekdayOf(DATE) + 1) % 7, 540, 1140)
+
+    const { body } = await getSchedule(DATE)
+    const lanEntry = body.staff.find((s: any) => s.id === lan)
+    expect(lanEntry.shift).toBeNull()
+  })
+
+  it('nhiều dòng ca cùng weekday → shift bao ngoài [min start, max end]', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    const wd = weekdayOf(DATE)
+    await insertShift(lan, wd, 540, 720) // sáng 09:00–12:00
+    await insertShift(lan, wd, 780, 1140) // chiều 13:00–19:00
+
+    const { body } = await getSchedule(DATE)
+    const lanEntry = body.staff.find((s: any) => s.id === lan)
+    expect(lanEntry.shift).toEqual({ start_min: 540, end_min: 1140 })
   })
 
   it('KTV inactive không xuất hiện trên lịch', async () => {

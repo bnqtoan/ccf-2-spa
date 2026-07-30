@@ -25,7 +25,7 @@
 // ~98+ active technicians (reproduced: 120 staff → HTTP 500).
 
 import { Hono } from 'hono'
-import { localDayBounds, localParts, parseDateStr } from '../lib/time.ts'
+import { localDayBounds, localParts, parseDateStr, weekdayOf } from '../lib/time.ts'
 import type { AuthUser } from '../lib/auth.ts'
 
 type Bindings = { DB: D1Database }
@@ -270,8 +270,13 @@ routes.get('/api/admin/schedule', async (c) => {
   const staffList = staffRes.results
 
   const staffIds = staffList.map((s) => s.id)
+  const weekday = weekdayOf(dateStr)
   const itemsByStaff = new Map<number, ItemRow[]>()
   const timeOffByStaff = new Map<number, TimeOffRow[]>()
+  // Ca làm việc của NGÀY được xem (theo weekday). Dùng để client tô mờ CỘT của
+  // KTV không có ca hôm đó (không phải để lọc slot — availability engine lo việc
+  // đó; đây chỉ là gợi ý trực quan "người này hôm nay không làm").
+  const shiftByStaff = new Map<number, { start_min: number; end_min: number }>()
 
   if (staffIds.length > 0) {
     // KHÔNG bind từng staff_id qua `IN (?, ?, …)`: D1 giới hạn 100 bound
@@ -282,10 +287,12 @@ routes.get('/api/admin/schedule', async (c) => {
     // Cùng row-filter với staffList: technician chỉ thấy item/time_off của mình.
     const itemStaffFilter = onlyStaffId === null ? '' : ' AND bi.staff_id = ?'
     const offStaffFilter = onlyStaffId === null ? '' : ' AND t.staff_id = ?'
+    const shiftStaffFilter = onlyStaffId === null ? '' : ' AND ws.staff_id = ?'
     const itemBinds: number[] = onlyStaffId === null ? [dayEnd, dayStart] : [dayEnd, dayStart, onlyStaffId]
     const offBinds: number[] = onlyStaffId === null ? [dayEnd, dayStart] : [dayEnd, dayStart, onlyStaffId]
+    const shiftBinds: number[] = onlyStaffId === null ? [weekday] : [weekday, onlyStaffId]
 
-    const [itemsRes, timeOffRes] = await Promise.all([
+    const [itemsRes, timeOffRes, shiftRes] = await Promise.all([
       // Half-open interval intersection with the local day (CONVENTIONS §2):
       // `start_at < dayEnd AND block_end_at > dayStart`. Using `block_end_at`
       // (not `end_at`) keeps a booking that occupies the buffer past
@@ -323,6 +330,18 @@ routes.get('/api/admin/schedule', async (c) => {
         )
         .bind(...offBinds)
         .all<TimeOffRow>(),
+      // Ca của weekday này. Fixed 2 param (+1 nếu technician) qua JOIN active
+      // staff — cùng lý do chống giới hạn 100-param của D1 như hai truy vấn trên.
+      db
+        .prepare(
+          `SELECT ws.staff_id AS staff_id, ws.start_min AS start_min, ws.end_min AS end_min
+           FROM work_shifts ws
+           JOIN staff st ON st.id = ws.staff_id AND st.active = 1
+           WHERE ws.weekday = ?${shiftStaffFilter}
+           ORDER BY ws.staff_id`,
+        )
+        .bind(...shiftBinds)
+        .all<{ staff_id: number; start_min: number; end_min: number }>(),
     ])
 
     for (const row of itemsRes.results) {
@@ -335,6 +354,17 @@ routes.get('/api/admin/schedule', async (c) => {
       if (list === undefined) timeOffByStaff.set(row.staff_id, [row])
       else list.push(row)
     }
+    // Một KTV có thể có nhiều dòng ca cùng weekday (hiếm); lấy bao ngoài
+    // [min(start), max(end)] để "có ca hôm nay" là một khoảng liền.
+    for (const row of shiftRes.results) {
+      const cur = shiftByStaff.get(row.staff_id)
+      if (cur === undefined) {
+        shiftByStaff.set(row.staff_id, { start_min: row.start_min, end_min: row.end_min })
+      } else {
+        cur.start_min = Math.min(cur.start_min, row.start_min)
+        cur.end_min = Math.max(cur.end_min, row.end_min)
+      }
+    }
   }
 
   const staff = staffList.map((s) => ({
@@ -342,6 +372,8 @@ routes.get('/api/admin/schedule', async (c) => {
     name: s.name,
     items: (itemsByStaff.get(s.id) ?? []).map(mapItemRow),
     time_off: (timeOffByStaff.get(s.id) ?? []).map(mapTimeOffRow),
+    // null = KTV KHÔNG có ca ngày này → client tô mờ cột.
+    shift: shiftByStaff.get(s.id) ?? null,
   }))
 
   return c.json({ date: dateStr, staff })

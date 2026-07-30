@@ -458,6 +458,14 @@
   color: var(--g-600);
   opacity: 0.85;
 }
+/* KTV không có ca ngày đang xem: tên cột mờ đi + hint đổi thành "Nghỉ hôm nay".
+   Vẫn bấm được (để báo nghỉ / xem), chỉ báo trực quan là hôm nay không làm. */
+.ccf-tl-head--offshift {
+  opacity: 0.5;
+}
+.ccf-tl-head--offshift .ccf-tl-head-hint {
+  color: var(--ink-3);
+}
 .ccf-tl-off-times {
   display: flex;
   gap: 12px;

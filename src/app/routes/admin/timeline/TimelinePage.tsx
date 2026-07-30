@@ -908,21 +908,26 @@ export default function TimelinePage() {
         <div className="ccf-tl">
           <div className="ccf-tl-grid" style={{ '--cols': staff.length } as React.CSSProperties}>
             <div className="ccf-tl-head" style={{ position: 'sticky', left: 0, zIndex: 3 }} />
-            {staff.map((s) => (
-              <button
-                type="button"
-                className="ccf-tl-head ccf-tl-head--btn"
-                key={s.id}
-                data-testid={`staff-head-${s.id}`}
-                title={`Báo nghỉ cho ${s.name}`}
-                onClick={() => openTimeOff({ id: s.id, name: s.name })}
-              >
-                {s.name}
-                <span className="ccf-tl-head-hint" aria-hidden="true">
-                  Báo nghỉ
-                </span>
-              </button>
-            ))}
+            {staff.map((s) => {
+              // shift === null → KTV không có ca ngày đang xem. `undefined` (week
+              // payload cũ / thiếu field) coi như CÓ ca để không mờ nhầm.
+              const offShift = s.shift === null
+              return (
+                <button
+                  type="button"
+                  className={`ccf-tl-head ccf-tl-head--btn${offShift ? ' ccf-tl-head--offshift' : ''}`}
+                  key={s.id}
+                  data-testid={`staff-head-${s.id}`}
+                  title={offShift ? `${s.name} không có ca làm ngày này` : `Báo nghỉ cho ${s.name}`}
+                  onClick={() => openTimeOff({ id: s.id, name: s.name })}
+                >
+                  {s.name}
+                  <span className="ccf-tl-head-hint" aria-hidden="true">
+                    {offShift ? 'Nghỉ hôm nay' : 'Báo nghỉ'}
+                  </span>
+                </button>
+              )
+            })}
 
             {hours.map((h) =>
               [
@@ -947,7 +952,10 @@ export default function TimelinePage() {
                   // lễ tân thấy được thao tác này ở UI — server vẫn là gate thật.
                   const isEmptyCell = itemsInHour.length === 0 && offInHour === undefined
                   const hourIsPast = isPastHour(h)
-                  const cellIsClickable = isEmptyCell && canAddService && !hourIsPast
+                  // KTV không có ca ngày này → cả cột không đặt được (server cũng
+                  // từ chối). Ô còn booking cũ vẫn hiện; chỉ chặn ô TRỐNG.
+                  const staffOffShift = s.shift === null
+                  const cellIsClickable = isEmptyCell && canAddService && !hourIsPast && !staffOffShift
 
                   // T-30: ô là ĐÍCH THẢ khi lễ tân đang kéo một block. Cho phép
                   // thả cả lên ô có/không có booking (giờ mới có thể chồng nhẹ
@@ -962,8 +970,14 @@ export default function TimelinePage() {
                     <div
                       className={`ccf-tl-cell${cellIsClickable ? ' ccf-tl-cell--clickable' : ''}${
                         isDropHighlight ? ' ccf-tl-cell--droptarget' : ''
-                      }${hourIsPast && isEmptyCell ? ' ccf-tl-cell--past' : ''}`}
-                      title={hourIsPast && isEmptyCell ? 'Đã qua giờ này' : undefined}
+                      }${(hourIsPast || staffOffShift) && isEmptyCell ? ' ccf-tl-cell--past' : ''}`}
+                      title={
+                        staffOffShift && isEmptyCell
+                          ? 'KTV không có ca làm ngày này'
+                          : hourIsPast && isEmptyCell
+                            ? 'Đã qua giờ này'
+                            : undefined
+                      }
                       key={`cell-${h}-${s.id}`}
                       data-testid={`cell-${s.id}-${h}`}
                       onClick={cellIsClickable ? () => openCreateBookingAt(s.id, h) : undefined}
