@@ -26,9 +26,12 @@ import auth, { adminAuthGuard, requireRoleMw } from './auth.ts'
  * Các task sau CHỈ thêm một dòng vào hàm này — không sửa theo cách khác,
  * để nhiều agent chạy song song không giẫm chân nhau khi merge.
  */
-// Mốc build — đổi mỗi lần deploy để biết production đang chạy bản nào.
-// Cũng là cách xác nhận auto-deploy qua Workers Builds thật sự hoạt động.
-const BUILD_TAG = '2026-07-24-connect-git'
+// Mốc build THẬT — nhúng lúc `vite build` (xem vite.config.ts `define`), dạng
+// `YYYY-MM-DD-<sha7>`. Phản ánh đúng commit đang chạy production nên /api/version
+// là cách xác nhận auto-deploy qua Workers Builds thật sự chạy. Ở môi trường
+// không qua Vite (vitest workerd pool) hằng số này không được thay → fallback.
+declare const __BUILD_TAG__: string
+const BUILD_TAG = typeof __BUILD_TAG__ === 'string' ? __BUILD_TAG__ : 'dev'
 
 export function registerRoutes(app: Hono) {
   app.get('/api/health', (c) => c.json({ ok: true }))
