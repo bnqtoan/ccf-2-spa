@@ -16,6 +16,7 @@ import {
   getReassignQueue,
   getSchedule,
   getServices,
+  rescheduleBooking,
   setBookingStatus,
   type AffectedItem,
   type AvailabilitySlot,
@@ -60,6 +61,32 @@ function statusClass(isOrphan: boolean, status: string, source: string): string 
   if (status === 'in_service') return 'ccf-tl-ev--in_service'
   if (source === 'walk_in') return 'ccf-tl-ev--walk_in'
   return 'ccf-tl-ev--booked'
+}
+
+/** Dịch mã lỗi từ reschedule (endpoint nguyên tử T-24) sang câu tiếng Việt
+ * thân thiện cho lễ tân — KHÔNG lộ mã lỗi thô. Dùng chung cho cả nút "Đổi giờ"
+ * trong sheet lẫn thao tác kéo-thả block (card: surface SLOT_TAKEN /
+ * CANCEL_TOO_LATE ... thành câu tiếng Việt). */
+function rescheduleErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'SLOT_TAKEN':
+        return 'Khung giờ này vừa có người đặt mất. Vui lòng chọn giờ hoặc kỹ thuật viên khác.'
+      case 'CANCEL_TOO_LATE':
+        return 'Chỉ còn dưới 2 tiếng trước giờ hẹn, không đổi được — vui lòng gọi trực tiếp để sắp lại.'
+      case 'STAFF_LACKS_SKILL':
+        return 'Kỹ thuật viên này không có kỹ năng của dịch vụ đang đặt.'
+      case 'OUTSIDE_SHIFT':
+        return 'Khoảng giờ này không nằm trong ca làm việc của kỹ thuật viên.'
+      case 'INVALID_TRANSITION':
+        return 'Lịch này không còn ở trạng thái đổi được (đã bắt đầu/đã xong/đã huỷ).'
+      case 'VALIDATION':
+        return err.message
+      default:
+        return err.message
+    }
+  }
+  return 'Không đổi được lịch. Vui lòng thử lại.'
 }
 
 /** Khoảng giờ hiển thị trên lưới: bao trọn mọi item + time_off, cộng thêm 1
@@ -165,6 +192,114 @@ export default function TimelinePage() {
   const [createPhone, setCreatePhone] = useState('')
   const [createSaving, setCreateSaving] = useState(false)
   const [createSaveError, setCreateSaveError] = useState<string | null>(null)
+
+  // T-30: đổi GIỜ / đổi KTV cho lịch bình thường (G1/G3) — hai lối vào cùng
+  // dùng MỘT reschedule nguyên tử (rescheduleBooking → POST /api/bookings/:id/
+  // reschedule, T-24). KHÔNG viết endpoint mới, KHÔNG cancel+book ở client.
+  //
+  // (a) Nút "Đổi giờ / Đổi KTV" trong sheet chi tiết → sheet chọn giờ + KTV mới.
+  const [rescheduleItem, setRescheduleItem] = useState<ScheduleItem | null>(null)
+  const [rsTime, setRsTime] = useState('09:00')
+  const [rsStaffId, setRsStaffId] = useState<number | null>(null)
+  const [rsSaving, setRsSaving] = useState(false)
+  const [rsError, setRsError] = useState<string | null>(null)
+
+  // (b) Kéo-thả block sang cột KTV khác / dòng giờ khác → hộp xác nhận nhẹ →
+  // reschedule. `dragItemId` là item đang kéo; `dropTarget` là ô đích khi thả.
+  const [dragItemId, setDragItemId] = useState<number | null>(null)
+  const [dropConfirm, setDropConfirm] = useState<{
+    item: ScheduleItem
+    fromStaffName: string
+    toStaffId: number
+    toStaffName: string
+    hour: number
+  } | null>(null)
+  const [dropSaving, setDropSaving] = useState(false)
+  const [dropError, setDropError] = useState<string | null>(null)
+
+  function openReschedule(item: ScheduleItem) {
+    setRescheduleItem(item)
+    setRsTime(formatHm(item.start_at))
+    setRsStaffId(null) // mặc định giữ KTV cũ; chọn KTV khác nếu muốn đổi người
+    setRsError(null)
+  }
+
+  function closeReschedule() {
+    setRescheduleItem(null)
+    setRsError(null)
+  }
+
+  async function handleRescheduleSubmit() {
+    if (rescheduleItem === null) return
+    const time = parseHm(rsTime)
+    if (time === null) {
+      setRsError('Giờ không hợp lệ. Nhập theo dạng HH:mm, ví dụ 13:30.')
+      return
+    }
+    setRsSaving(true)
+    setRsError(null)
+    try {
+      const startAt = localDateHmToEpoch(date, time.hh, time.mm)
+      // staff_id chỉ gửi khi lễ tân CHỌN đổi sang người khác; không chọn = giữ
+      // KTV cũ (server hiểu staff_id undefined = giữ nguyên).
+      const staffId = rsStaffId ?? undefined
+      await rescheduleBooking(rescheduleItem.id, startAt, staffId)
+      setRescheduleItem(null)
+      setSelectedItemId(null)
+      // Block chuyển đúng vị trí mới NGAY (card: reload grid sau thành công).
+      await loadAll()
+    } catch (err) {
+      setRsError(rescheduleErrorMessage(err))
+    } finally {
+      setRsSaving(false)
+    }
+  }
+
+  /** Thả một block (draggedId) lên ô của KTV `toStaffId` ở dòng giờ `hour`.
+   * Không gọi API ngay: mở hộp xác nhận nhẹ (card: "xác nhận nhẹ → reschedule")
+   * để lễ tân khỏi kéo nhầm. Việc gọi reschedule nguyên tử nằm ở confirmDrop. */
+  function handleBlockDrop(draggedId: number, toStaffId: number, toStaffName: string, hour: number) {
+    setDragItemId(null)
+    if (!Number.isInteger(draggedId) || schedule === null) return
+    let found: { item: ScheduleItem; fromStaffId: number; fromStaffName: string } | null = null
+    for (const s of schedule.staff) {
+      const it = s.items.find((i) => i.id === draggedId)
+      if (it) {
+        found = { item: it, fromStaffId: s.id, fromStaffName: s.name }
+        break
+      }
+    }
+    if (found === null) return
+    // Thả đúng chỗ cũ (cùng KTV + cùng giờ bắt đầu) → không làm gì.
+    if (found.fromStaffId === toStaffId && minutesOfLocalDay(found.item.start_at) === hour * 60) return
+    setDropError(null)
+    setDropConfirm({
+      item: found.item,
+      fromStaffName: found.fromStaffName,
+      toStaffId,
+      toStaffName,
+      hour,
+    })
+  }
+
+  async function confirmDrop() {
+    if (dropConfirm === null) return
+    setDropSaving(true)
+    setDropError(null)
+    try {
+      const startAt = localDateHmToEpoch(date, dropConfirm.hour, 0)
+      // Đổi cả giờ (hour:00 của dòng đích) lẫn KTV (cột đích) trong MỘT lần gọi
+      // nguyên tử. Giữ KTV cũ vẫn gửi staff_id đích (== KTV cũ) — vô hại.
+      await rescheduleBooking(dropConfirm.item.id, startAt, dropConfirm.toStaffId)
+      setDropConfirm(null)
+      setDragItemId(null)
+      await loadAll()
+    } catch (err) {
+      setDropError(rescheduleErrorMessage(err))
+    } finally {
+      setDropSaving(false)
+    }
+  }
 
   function ensureCreateServicesLoaded() {
     if (createServices === null) {
@@ -604,12 +739,44 @@ export default function TimelinePage() {
                   const isEmptyCell = itemsInHour.length === 0 && offInHour === undefined
                   const cellIsClickable = isEmptyCell && canAddService
 
+                  // T-30: ô là ĐÍCH THẢ khi lễ tân đang kéo một block. Cho phép
+                  // thả cả lên ô có/không có booking (giờ mới có thể chồng nhẹ
+                  // block khác — server là trọng tài SLOT_TAKEN, không tự chặn ở
+                  // client cho "dễ"). Chỉ owner/lễ tân (canAddService) mới thả được.
+                  // Handler luôn gắn khi canAddService (KHÔNG gate theo dragItemId):
+                  // gate theo dragItemId sẽ khiến ô CHƯA có onDragOver/onDrop ở lần
+                  // render đầu của thao tác kéo (setDragItemId là async) → drop rơi.
+                  const isDropHighlight = dragItemId !== null && canAddService
+
                   return (
                     <div
-                      className={`ccf-tl-cell${cellIsClickable ? ' ccf-tl-cell--clickable' : ''}`}
+                      className={`ccf-tl-cell${cellIsClickable ? ' ccf-tl-cell--clickable' : ''}${
+                        isDropHighlight ? ' ccf-tl-cell--droptarget' : ''
+                      }`}
                       key={`cell-${h}-${s.id}`}
                       data-testid={`cell-${s.id}-${h}`}
                       onClick={cellIsClickable ? () => openCreateBookingAt(s.id, h) : undefined}
+                      onDragOver={
+                        canAddService
+                          ? (e) => {
+                              // preventDefault bắt buộc để ô trở thành vùng thả hợp lệ.
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
+                            }
+                          : undefined
+                      }
+                      onDrop={
+                        canAddService
+                          ? (e) => {
+                              e.preventDefault()
+                              const raw = e.dataTransfer.getData('text/plain')
+                              const draggedId = Number(raw)
+                              if (Number.isInteger(draggedId) && draggedId > 0) {
+                                handleBlockDrop(draggedId, s.id, s.name, h)
+                              }
+                            }
+                          : undefined
+                      }
                     >
                       {offInHour &&
                         (() => {
@@ -634,14 +801,32 @@ export default function TimelinePage() {
                         const { top, height, bufferHeight } = positionItem(item, hourStartMin)
                         const isShort = height < SHORT_BLOCK_THRESHOLD_PX
                         const cls = statusClass(isOrphan, item.status, item.source)
+                        // T-30: chỉ lịch 'booked' mới KÉO đổi giờ/KTV được (giống
+                        // luật server: chỉ 'booked' reschedule được → tránh cho lễ
+                        // tân kéo cái đã bắt đầu/xong rồi nhận INVALID_TRANSITION).
+                        // Và chỉ owner/lễ tân (canAddService); technician không kéo.
+                        const isDraggable = canAddService && item.status === 'booked'
                         return (
                           <button
                             type="button"
                             key={item.id}
-                            className={`ccf-tl-ev ${cls}${isShort ? ' ccf-tl-ev--short' : ''}`}
+                            className={`ccf-tl-ev ${cls}${isShort ? ' ccf-tl-ev--short' : ''}${
+                              isDraggable ? ' ccf-tl-ev--draggable' : ''
+                            }`}
                             data-testid={`booking-item-${item.id}`}
                             data-status={item.status}
                             data-orphan={isOrphan ? 'true' : 'false'}
+                            draggable={isDraggable}
+                            onDragStart={
+                              isDraggable
+                                ? (e) => {
+                                    e.dataTransfer.setData('text/plain', String(item.id))
+                                    e.dataTransfer.effectAllowed = 'move'
+                                    setDragItemId(item.id)
+                                  }
+                                : undefined
+                            }
+                            onDragEnd={isDraggable ? () => setDragItemId(null) : undefined}
                             style={{
                               top,
                               height: Math.max(height - 2, 0),
@@ -779,6 +964,20 @@ export default function TimelinePage() {
               “Khách không đến” dùng để ghi nhận lịch sử, không mở lại được slot đã trôi qua.
             </Notice>
 
+            {/* T-30: đổi giờ / đổi KTV — chỉ với lịch 'booked' (server chỉ cho
+                'booked' reschedule) và chỉ owner/lễ tân. Ẩn nút khi lịch đã bắt
+                đầu/xong để lễ tân không bấm rồi nhận INVALID_TRANSITION. */}
+            {canAddService && selectedItem.item.status === 'booked' && (
+              <Button
+                variant="ghost"
+                className="ccf-tl-add-btn"
+                data-testid="reschedule-open"
+                onClick={() => openReschedule(selectedItem.item)}
+              >
+                Đổi giờ / Đổi KTV
+              </Button>
+            )}
+
             {canAddService && (
               <Button
                 variant="ghost"
@@ -789,6 +988,131 @@ export default function TimelinePage() {
                 + Thêm dịch vụ
               </Button>
             )}
+          </div>
+        )}
+      </Sheet>
+
+      {/* T-30 (a): sheet chọn giờ + KTV mới → reschedule nguyên tử. Đơn giản
+          như sheet "Đặt lịch" của T-29 (giờ tự do + chọn KTV), KHÔNG cần lưới
+          availability: server nạp variant từ item + là trọng tài skill/slot/ca,
+          trả mã lỗi → dịch sang tiếng Việt. */}
+      <Sheet
+        open={rescheduleItem !== null}
+        onClose={closeReschedule}
+        title="Đổi giờ / Đổi kỹ thuật viên"
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeReschedule}>
+              Đóng
+            </Button>
+            <Button
+              variant="primary"
+              data-testid="reschedule-submit"
+              disabled={parseHm(rsTime) === null || rsSaving}
+              onClick={handleRescheduleSubmit}
+            >
+              {rsSaving ? 'Đang đổi...' : 'Xác nhận đổi'}
+            </Button>
+          </>
+        }
+      >
+        {rescheduleItem && (
+          <div data-testid="reschedule-sheet">
+            <Notice tone="info" style={{ marginBottom: 14 }}>
+              Đổi giờ/kỹ thuật viên là thao tác NGUYÊN TỬ — lịch cũ chỉ mất khi giờ mới
+              chắc chắn đặt được. Nếu giờ mới vừa bị chiếm, lịch cũ vẫn còn nguyên.
+            </Notice>
+
+            {rsError && (
+              <Notice tone="warn" style={{ marginBottom: 12 }} data-testid="reschedule-error">
+                {rsError}
+              </Notice>
+            )}
+
+            <div className="ccf-tl-summary" style={{ marginBottom: 14 }}>
+              <div className="ccf-tl-sline">
+                <span className="ccf-tl-k">Dịch vụ</span>
+                <span className="ccf-tl-v">{rescheduleItem.service_name}</span>
+              </div>
+              <div className="ccf-tl-sline">
+                <span className="ccf-tl-k">Giờ hiện tại</span>
+                <span className="ccf-tl-v">{formatHm(rescheduleItem.start_at)}</span>
+              </div>
+            </div>
+
+            <div className="ccf-tl-label">Giờ mới · {formatDateNav(date, todayStr)}</div>
+            <Field
+              label="Giờ bắt đầu"
+              type="time"
+              data-testid="reschedule-time"
+              value={rsTime}
+              onChange={(e) => setRsTime(e.target.value)}
+            />
+
+            <Field
+              as="select"
+              label="Kỹ thuật viên (giữ nguyên nếu chỉ đổi giờ)"
+              data-testid="reschedule-staff-select"
+              value={rsStaffId ?? ''}
+              onChange={(e) => setRsStaffId(e.target.value === '' ? null : Number(e.target.value))}
+            >
+              <option value="">— Giữ kỹ thuật viên hiện tại —</option>
+              {staff.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Field>
+          </div>
+        )}
+      </Sheet>
+
+      {/* T-30 (b): xác nhận nhẹ sau khi KÉO block sang cột/giờ khác → reschedule
+          nguyên tử. Xác nhận để tránh kéo nhầm; gọi API ở confirmDrop. */}
+      <Sheet
+        open={dropConfirm !== null}
+        onClose={() => {
+          setDropConfirm(null)
+          setDropError(null)
+        }}
+        title="Xác nhận đổi lịch"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setDropConfirm(null)
+                setDropError(null)
+              }}
+            >
+              Huỷ
+            </Button>
+            <Button
+              variant="primary"
+              data-testid="drop-confirm-submit"
+              disabled={dropSaving}
+              onClick={confirmDrop}
+            >
+              {dropSaving ? 'Đang đổi...' : 'Đổi lịch'}
+            </Button>
+          </>
+        }
+      >
+        {dropConfirm && (
+          <div data-testid="drop-confirm-sheet">
+            {dropError && (
+              <Notice tone="warn" style={{ marginBottom: 12 }} data-testid="drop-confirm-error">
+                {dropError}
+              </Notice>
+            )}
+            <Notice tone="info">
+              Đổi lịch của <strong>{dropConfirm.item.customer_name}</strong> ({dropConfirm.item.service_name})
+              <br />
+              từ <strong>{dropConfirm.fromStaffName}</strong> lúc {formatHm(dropConfirm.item.start_at)}
+              <br />
+              sang <strong>{dropConfirm.toStaffName}</strong> lúc{' '}
+              {String(dropConfirm.hour).padStart(2, '0')}:00?
+            </Notice>
           </div>
         )}
       </Sheet>

@@ -133,6 +133,13 @@
 .ccf-tl-cell--clickable:hover {
   background: var(--g-50);
 }
+/* T-30: khi đang KÉO một block để đổi giờ/KTV, mọi ô sáng lên thành vùng thả
+   hợp lệ (contract calendar "kéo block để dời giờ + KTV"). */
+.ccf-tl-cell--droptarget {
+  outline: 2px dashed var(--g-400, #9db8ad);
+  outline-offset: -3px;
+  background: var(--g-50);
+}
 
 /* ---------- event blocks (prototype dòng 272-284) ---------- */
 .ccf-tl-ev {
@@ -152,6 +159,14 @@
   border-bottom: none;
   border-right: none;
   font-family: inherit;
+}
+/* T-30: block 'booked' của owner/lễ tân KÉO được để đổi giờ/KTV. Con trỏ grab
+   báo cho lễ tân biết có thể kéo. */
+.ccf-tl-ev--draggable {
+  cursor: grab;
+}
+.ccf-tl-ev--draggable:active {
+  cursor: grabbing;
 }
 /* block ngắn (≤30' hiển thị): chỉ đủ chỗ tên khách, ẩn tên dịch vụ */
 .ccf-tl-ev--short {

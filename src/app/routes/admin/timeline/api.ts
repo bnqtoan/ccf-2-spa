@@ -226,3 +226,35 @@ export async function addAppointmentItem(
   if (!res.ok) return parseErrorAndThrow(res)
   return (await res.json()) as AddAppointmentItemResult
 }
+
+// --- T-30: đổi GIỜ / đổi KTV cho một lịch bình thường NGAY trên timeline -----
+// (G1/G3). KHÔNG có endpoint mới: dùng lại đúng reschedule NGUYÊN TỬ race-safe
+// đã có (src/worker/routes/reschedule.ts, T-24) — hiện chỉ nối vào trang khách
+// /lookup. Đổi = MỘT câu UPDATE có guard (rescheduleItemAtomically): hoặc dời
+// được, hoặc item CŨ Y NGUYÊN. TUYỆT ĐỐI không ghép cancel+book ở client
+// (race → mất lịch âm thầm, đúng thảm hoạ card gọi tên).
+//
+// Body: { start_at, staff_id? }. Không gửi staff_id = giữ KTV cũ (chỉ đổi giờ).
+// Server tự nạp variant từ item nên client KHÔNG cần variant_id. Server áp đúng
+// cutoff 2h + skill/shift/slot (advisory cho mã lỗi đẹp, rồi guard nguyên tử là
+// trọng tài). Ném `ApiError` giữ nguyên `code` — Sheet dịch sang tiếng Việt:
+// SLOT_TAKEN / CANCEL_TOO_LATE / STAFF_LACKS_SKILL / OUTSIDE_SHIFT / VALIDATION.
+
+export interface RescheduleResult {
+  item: { id: number; staff_id: number; start_at: number; end_at: number; block_end_at: number; status: string }
+  staff: { id: number; name: string } | null
+}
+
+export async function rescheduleBooking(
+  itemId: number,
+  startAt: number,
+  staffId?: number,
+): Promise<RescheduleResult> {
+  const res = await fetch(`/api/bookings/${itemId}/reschedule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ start_at: startAt, ...(staffId !== undefined ? { staff_id: staffId } : {}) }),
+  })
+  if (!res.ok) return parseErrorAndThrow(res)
+  return (await res.json()) as RescheduleResult
+}
