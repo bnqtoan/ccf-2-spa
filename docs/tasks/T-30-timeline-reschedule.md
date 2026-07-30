@@ -1,7 +1,7 @@
 ---
 id: T-30
 title: Đổi giờ / đổi KTV cho lịch ngay trên timeline (kéo + nút trong sheet)
-status: todo
+status: review
 model: opus
 effort: high
 depends_on: ["T-22", "T-24"]
@@ -13,8 +13,8 @@ touches:
   - tests/api/admin-reschedule.test.ts
 prd_refs: []
 owner: null
-started_at: null
-finished_at: null
+started_at: 2026-07-30
+finished_at: 2026-07-30
 ---
 
 # T-30 · Đổi giờ / đổi KTV cho lịch ngay trên timeline (kéo + nút trong sheet)
@@ -91,4 +91,28 @@ không qua huỷ-tạo-lại, giữ đúng constraint skill/slot.
 - Giữ cutoff/luật đã có; đừng nới để "cho dễ".
 
 ## Đã làm gì
-(agent điền khi xong)
+- Nối reschedule NGUYÊN TỬ đã có (`POST /api/bookings/:id/reschedule`, T-24) vào admin
+  timeline — KHÔNG viết endpoint mới, KHÔNG cancel+book ở client. Thêm
+  `rescheduleBooking()` vào `timeline/api.ts` (body `{ start_at, staff_id? }`;
+  server tự nạp variant nên client không cần variant_id).
+- Hai lối vào cùng một endpoint: (a) nút "Đổi giờ / Đổi KTV" trong sheet chi tiết
+  (chỉ lịch `booked`) → sheet chọn giờ + KTV mới; (b) KÉO block sang cột KTV/dòng
+  giờ khác → hộp xác nhận nhẹ → reschedule. Cả hai gate `canAddService`
+  (owner/lễ tân), technician không thấy/không kéo được.
+- Map mã lỗi server → câu tiếng Việt thân thiện (`rescheduleErrorMessage`):
+  SLOT_TAKEN / CANCEL_TOO_LATE / STAFF_LACKS_SKILL / OUTSIDE_SHIFT /
+  INVALID_TRANSITION — không lộ mã thô. Giữ nguyên cutoff 2h + skill/shift/slot
+  của endpoint (không nới). Sau thành công reload grid → block dời đúng chỗ ngay.
+- Test: `tests/api/admin-reschedule.test.ts` (4 case: đổi staff+giờ đủ skill;
+  SLOT_TAKEN không đổi; STAFF_LACKS_SKILL không đổi; chỉ đổi giờ giữ KTV) + 4 E2E
+  trong `admin-timeline.spec.ts` (kéo→DB đổi; nút Đổi giờ→dời; đổi vào slot bận→
+  SLOT_TAKEN không đổi; kéo sang KTV thiếu skill→chặn).
+- Bỏ kéo-mép-đổi-độ-dài (card cho phép bỏ): backend reschedule giữ nguyên variant
+  → không đổi duration; chỉ dời giờ/KTV. Không thêm route mới, không đụng luồng
+  khách /lookup, không sửa `admin-schedule.ts` (ngoài touches).
+- Verify: typecheck xanh; `npm test` 431/431 xanh; E2E project chromium-shared-queue
+  (chứa admin-timeline) 19/19 xanh. Chạy full-parallel có vài spec ngoài card đỏ do
+  tranh chấp D1 local (nhiều `wrangler d1 execute` đồng thời → SQLITE_BUSY/FK, dev
+  server bị OOM-kill) — chạy tuần tự từng project thì chỉ còn đúng 1 lỗi
+  pre-existing đã biết: `customer-reschedule.spec.ts:70` (locator `rs-slot-`),
+  không liên quan card này.

@@ -588,6 +588,198 @@ WHERE status IN ('booked','in_service')
     // Sheet KHÔNG âm thầm đóng — lễ tân vẫn thấy form để sửa giờ/KTV khác.
     await expect(page.getByTestId('create-booking-sheet')).toBeVisible()
   })
+
+  // T-30: G1/G3 — đổi giờ / đổi KTV ngay trên timeline (kéo block + nút trong
+  // sheet). Backend DÙNG LẠI reschedule nguyên tử đã có (POST /api/bookings/:id/
+  // reschedule); admin-reschedule.test.ts kiểm phần API. Bốn test dưới đây kiểm
+  // THAO TÁC TRÊN UI thật + xác nhận DB đổi đúng.
+
+  /** Đọc staff_id + start_at của một booking_item thẳng từ D1 (kiểm DB sau kéo). */
+  function readItem(itemId: number): { staff_id: number; start_at: number; status: string } {
+    const out = execFileSync(
+      'npx',
+      [
+        'wrangler',
+        'd1',
+        'execute',
+        'DB',
+        '--local',
+        '--json',
+        '--command',
+        `SELECT staff_id, start_at, status FROM booking_items WHERE id = ${itemId}`,
+      ],
+      { cwd: REPO_ROOT, stdio: 'pipe' },
+    ).toString()
+    const parsed = JSON.parse(out) as [{ results: { staff_id: number; start_at: number; status: string }[] }]
+    const row = parsed[0]?.results[0]
+    if (row === undefined) throw new Error(`Không đọc được booking_item ${itemId}`)
+    return row
+  }
+
+  test('kéo block Massage của Huong sang cột Lan (đủ skill) + giờ khác → xác nhận → DB đổi staff + giờ', async ({
+    page,
+  }) => {
+    // Huong + Lan đều có skill Massage (seed). Nguồn: Huong@18:00 (giờ trống
+    // trong file này). Đích: cột Lan, dòng 09:00 — Lan KHÔNG bị time-off 14-19h
+    // mà các test trên seed, và 09:00 của Lan còn trống.
+    const seeded = seedBookingItem({
+      staffName: 'Huong',
+      serviceName: 'Massage toàn thân',
+      variantName: '60 phút',
+      hour: 18,
+      customerSuffix: 'DragMove',
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    const lanId = await staffIdOf(page, 'Lan')
+    const block = page.getByTestId(`booking-item-${seeded.itemId}`)
+    await expect(block).toBeVisible()
+
+    const targetCell = page.getByTestId(`cell-${lanId}-9`)
+    await expect(targetCell).toBeVisible()
+    await block.dragTo(targetCell)
+
+    // Xác nhận nhẹ trước khi cam kết (card: "xác nhận nhẹ → reschedule").
+    await expect(page.getByTestId('drop-confirm-sheet')).toBeVisible()
+    await page.getByTestId('drop-confirm-submit').click()
+
+    // Sheet đóng, timeline tải lại — block nằm ở cột Lan, dòng 09:00.
+    await expect(page.getByTestId('drop-confirm-sheet')).not.toBeVisible()
+    const cellAt9 = page.getByTestId(`cell-${lanId}-9`)
+    await expect(cellAt9.getByTestId(`booking-item-${seeded.itemId}`)).toBeVisible()
+
+    // DB đổi thật: staff = Lan, giờ = 09:00 TARGET_DATE.
+    const row = readItem(seeded.itemId)
+    expect(String(row.staff_id)).toBe(lanId)
+    expect(row.start_at).toBe(localToEpoch(TARGET_DATE, 9, 0))
+    expect(row.status).toBe('booked')
+  })
+
+  test('nút "Đổi giờ / Đổi KTV" trong sheet → chọn giờ mới → xác nhận → block dời sang giờ mới', async ({
+    page,
+  }) => {
+    const seeded = seedBookingItem({
+      staffName: 'Huong',
+      serviceName: 'Massage toàn thân',
+      variantName: '60 phút',
+      hour: 16,
+      customerSuffix: 'RsBtn',
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    await page.getByTestId(`booking-item-${seeded.itemId}`).click()
+    await expect(page.getByTestId('booking-sheet')).toBeVisible()
+
+    await page.getByTestId('reschedule-open').click()
+    await expect(page.getByTestId('reschedule-sheet')).toBeVisible()
+    // Prefill đúng giờ hiện tại (16:00).
+    await expect(page.getByTestId('reschedule-time')).toHaveValue('16:00')
+
+    // Đổi sang 11:00 (giờ trống của Huong trong ngày, trong ca 09-19), giữ nguyên KTV.
+    await page.getByTestId('reschedule-time').fill('11:00')
+    await page.getByTestId('reschedule-submit').click()
+
+    // Sheet đóng, timeline tải lại — block dời sang dòng 11:00 của Huong.
+    await expect(page.getByTestId('reschedule-sheet')).not.toBeVisible()
+    const huongId = await staffIdOf(page, 'Huong')
+    const cellAt11 = page.getByTestId(`cell-${huongId}-11`)
+    await expect(cellAt11.getByTestId(`booking-item-${seeded.itemId}`)).toBeVisible()
+
+    const row = readItem(seeded.itemId)
+    expect(row.start_at).toBe(localToEpoch(TARGET_DATE, 11, 0))
+    expect(String(row.staff_id)).toBe(huongId)
+  })
+
+  test('đổi giờ vào slot của KTV đã bận → báo SLOT_TAKEN thân thiện, không lộ mã lỗi thô, DB không đổi', async ({
+    page,
+  }) => {
+    // Item cần đổi: Huong@16:00 (giữa lưới, không bị AdminNav sticky ở đỉnh che
+    // click). Slot đích đã BẬN: blocker Huong@14:00. Đổi victim → 14:00 (giữ
+    // Huong) đè đúng slot blocker → SLOT_TAKEN, item cũ Y NGUYÊN.
+    const victim = seedBookingItem({
+      staffName: 'Huong',
+      serviceName: 'Massage toàn thân',
+      variantName: '60 phút',
+      hour: 16,
+      customerSuffix: 'RsTaken',
+    })
+    const blocker = seedBookingItem({
+      staffName: 'Huong',
+      serviceName: 'Massage toàn thân',
+      variantName: '60 phút',
+      hour: 14, // trong ca 09:00-19:00 của Huong → không rơi vào OUTSIDE_SHIFT
+      customerSuffix: 'RsBlocker',
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    await page.getByTestId(`booking-item-${victim.itemId}`).click()
+    await expect(page.getByTestId('booking-sheet')).toBeVisible()
+    await page.getByTestId('reschedule-open').click()
+    await expect(page.getByTestId('reschedule-sheet')).toBeVisible()
+
+    // Đổi sang 14:00 — đúng slot blocker đang chiếm (cùng Huong) → SLOT_TAKEN.
+    await page.getByTestId('reschedule-time').fill('14:00')
+    await page.getByTestId('reschedule-submit').click()
+
+    const err = page.getByTestId('reschedule-error')
+    await expect(err).toBeVisible()
+    await expect(err).not.toContainText('SLOT_TAKEN')
+    // Sheet vẫn mở (không âm thầm đóng) — lễ tân chọn giờ khác.
+    await expect(page.getByTestId('reschedule-sheet')).toBeVisible()
+
+    // BẤT BIẾN: item cũ Y NGUYÊN ở 16:00, không mất lịch.
+    const row = readItem(victim.itemId)
+    expect(row.start_at).toBe(localToEpoch(TARGET_DATE, 16, 0))
+    expect(row.status).toBe('booked')
+    expect(blocker.itemId).toBeGreaterThan(0)
+  })
+
+  test('kéo block Massage sang KTV KHÔNG đủ skill (Mai chỉ có Móng) → bị chặn, báo lý do, DB không đổi', async ({
+    page,
+  }) => {
+    // Huong@11:30 (Massage). Mai chỉ có skill Móng (seed) → kéo sang cột Mai
+    // phải bị chặn STAFF_LACKS_SKILL, item cũ giữ nguyên.
+    const seeded = seedBookingItem({
+      staffName: 'Huong',
+      serviceName: 'Massage toàn thân',
+      variantName: '60 phút',
+      hour: 11,
+      minute: 30,
+      customerSuffix: 'DragNoSkill',
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    const maiId = await staffIdOf(page, 'Mai')
+    const block = page.getByTestId(`booking-item-${seeded.itemId}`)
+    await expect(block).toBeVisible()
+
+    const targetCell = page.getByTestId(`cell-${maiId}-10`)
+    await expect(targetCell).toBeVisible()
+    await block.dragTo(targetCell)
+
+    await expect(page.getByTestId('drop-confirm-sheet')).toBeVisible()
+    await page.getByTestId('drop-confirm-submit').click()
+
+    // Bị chặn: báo lý do thân thiện, KHÔNG lộ mã lỗi thô.
+    const err = page.getByTestId('drop-confirm-error')
+    await expect(err).toBeVisible()
+    await expect(err).toContainText('kỹ năng')
+    await expect(err).not.toContainText('STAFF_LACKS_SKILL')
+
+    // DB KHÔNG đổi: vẫn cột Huong, vẫn 11:30.
+    const huongId = await staffIdOf(page, 'Huong')
+    const row = readItem(seeded.itemId)
+    expect(String(row.staff_id)).toBe(huongId)
+    expect(row.start_at).toBe(localToEpoch(TARGET_DATE, 11, 30))
+  })
 })
 
 /** Bấm nút "ngày sau" đủ số lần để tới TARGET_DATE (Thứ Hai tuần sau), xuất
