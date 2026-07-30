@@ -52,6 +52,38 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-34 | Seed E2E qua binding (bỏ spawn wrangler) → nhanh + tất định | review | opus | — |
 | T-35 | E2E nhanh gấp đôi — khử 3 test chờ đồng-hồ-thật (140s→50s) | review | opus | — |
 | T-36 | Ca làm việc — sửa theo tuần mẫu mỗi KTV (bỏ list 35 dòng) | review | opus | — |
+| T-37 | AdminShell — nav + độ rộng thống nhất mọi trang admin + restyle users | review | sonnet | — |
+| T-38 | Create-sheet timeline chọn từ slot còn trống THẬT (bỏ nhập giờ tự do) | review | sonnet | T-29 |
+| T-39 | E2E xanh tất định — serial + busy-retry D1 tầng worker (khử SQLITE_BUSY) | review | opus | T-34 |
+| T-40 | Thay toàn bộ emoji UI bằng icon SVG lucide-react | review | sonnet | — |
+| T-41 | /api/version = commit SHA thật (nhúng lúc build, bundler-agnostic) | review | sonnet | — |
+| T-42 | /api/availability trả reason khi rỗng — nói đúng vì sao hết slot | review | sonnet | T-03 |
+| T-43 | Timeline guardrails — chặn ô quá khứ/ngoài ca, tô mờ cột KTV nghỉ, day_over | review | opus | T-42 |
+| T-44 | Trang đặt lịch khách hiện TÊN KTV thật (bỏ "Kỹ thuật viên #id") | review | sonnet | T-03, T-10 |
+
+## Nhóm việc 30/07 — timeline-as-calendar hoàn thiện + hạ tầng (T-37..T-44)
+
+Batch ngày 30/07, **tái dựng card từ commit** (làm trước trong một phiên tương
+tác nhanh, card viết sau). SỐ card KHÔNG theo thứ tự thời gian — dưới đây là
+**trình tự THỰC TẾ** (giờ VN, theo commit):
+
+| Giờ | Card | Việc |
+|-----|------|------|
+| 13:03–15:58 | T-38 | Create-sheet chọn slot còn trống thật (bug "chọn giờ nào cũng không có KTV") |
+| 14:16–14:35 | T-37 | AdminShell — nav + độ rộng thống nhất |
+| 15:23–16:43 | T-39 | E2E serial + busy-retry D1 → CI xanh tất định |
+| 17:14 | T-40 | Emoji → lucide icons |
+| 17:26–17:45 | T-41 | /api/version = SHA thật |
+| 18:06 | T-42 | /api/availability trả `reason` khi rỗng |
+| 18:22–19:13 | T-43 | Timeline guardrails (ô quá khứ/ngoài ca, cột KTV nghỉ, `day_over`) |
+| 19:48 | T-44 | Trang đặt lịch hiện tên KTV thật |
+
+Hai mạch xen kẽ nhau theo thời gian:
+- **UX booking/timeline** (T-38 → T-42 → T-43 → T-44): biến lưới lịch thành thứ
+  tự DẪN DẮT — chỉ hiện/cho bấm cái đặt được, nói đúng vì sao khi không, hiện
+  tên thật. Gốc là loạt bug người dùng báo trực tiếp khi dùng thật. T-43
+  `depends_on: T-42` là phụ thuộc THẬT (day_over mở rộng bộ reason của T-42).
+- **Hạ tầng/UI nền** (T-37, T-39, T-40, T-41): làm nền vững, xen giữa các mạch UX.
 
 ## Nhóm timeline-as-calendar (T-29..T-32)
 
