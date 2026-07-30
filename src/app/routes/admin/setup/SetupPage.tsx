@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import AdminNav from '../../../components/AdminNav'
 import StaffTab from './StaffTab'
 import ServicesTab from './ServicesTab'
 import ShiftsTab from './ShiftsTab'
@@ -26,7 +25,6 @@ export default function SetupPage() {
 
   return (
     <div className="ccf-su-page">
-      <AdminNav />
       <header className="ccf-su-head">
         <h1>Thiết lập</h1>
         <p>Quản lý nhân viên, kỹ năng, dịch vụ, gói và ca làm việc.</p>
