@@ -48,7 +48,7 @@ ghi lý do, dừng lại; không xoá test, không nới assertion cho xanh.
 | T-29 | **G1/G2** Tạo lịch trên timeline (click ô trống → prefill) | review | sonnet | T-22 |
 | T-30 | **G1/G3** Đổi giờ/KTV trên timeline (kéo + nút sheet) | review | opus | T-22, T-24 |
 | T-31 | **G4** Timeline week view + chọn ngày + "Hôm nay" | review | sonnet | T-12 |
-| T-32 | **G5** Hiện tên+SĐT+nút gọi trên sheet chi tiết lịch | todo | sonnet | T-12 |
+| T-32 | **G5** Hiện tên+SĐT+nút gọi trên sheet chi tiết lịch | review | sonnet | T-12 |
 
 ## Nhóm timeline-as-calendar (T-29..T-32)
 
