@@ -191,13 +191,23 @@ export interface AvailabilitySlot {
   staff_ids: number[]
 }
 
-/** `GET /api/availability?variant_id&date` — slot còn trống trong ngày đang xem. */
-export async function getAvailability(variantId: number, date: string): Promise<AvailabilitySlot[]> {
+/** Lý do lưới slot rỗng (khớp EmptyReason ở src/worker/routes/availability.ts).
+ *  Chỉ có mặt khi slots rỗng. */
+export type AvailabilityEmptyReason = 'no_staff_skilled' | 'no_staff_on_shift' | 'fully_booked'
+
+export interface AvailabilityResult {
+  slots: AvailabilitySlot[]
+  reason?: AvailabilityEmptyReason
+}
+
+/** `GET /api/availability?variant_id&date` — slot còn trống trong ngày đang xem.
+ *  Trả kèm `reason` khi rỗng để UI nói đúng nguyên nhân (KTV nghỉ vs kín giờ). */
+export async function getAvailability(variantId: number, date: string): Promise<AvailabilityResult> {
   const params = new URLSearchParams({ variant_id: String(variantId), date })
   const res = await fetch(`/api/availability?${params.toString()}`)
   if (!res.ok) return parseErrorAndThrow(res)
-  const body = (await res.json()) as { slots: AvailabilitySlot[] }
-  return body.slots
+  const body = (await res.json()) as AvailabilityResult
+  return { slots: body.slots, reason: body.reason }
 }
 
 export interface AddAppointmentItemResult {

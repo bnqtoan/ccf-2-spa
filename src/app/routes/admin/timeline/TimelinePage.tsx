@@ -20,6 +20,7 @@ import {
   rescheduleBooking,
   setBookingStatus,
   type AffectedItem,
+  type AvailabilityEmptyReason,
   type AvailabilitySlot,
   type ScheduleItem,
   type ScheduleRangeDay,
@@ -223,6 +224,9 @@ export default function TimelinePage() {
   const [createStaffId, setCreateStaffId] = useState<number | null>(null)
   const [createTime, setCreateTime] = useState('09:00')
   const [createSlots, setCreateSlots] = useState<AvailabilitySlot[] | null>(null)
+  // Lý do lưới slot rỗng (từ /api/availability) → để hiện thông báo đúng nguyên
+  // nhân (KTV không có ca vs kín giờ) thay vì "hết giờ" chung chung.
+  const [createSlotsReason, setCreateSlotsReason] = useState<AvailabilityEmptyReason | undefined>(undefined)
   const [createSlotsLoading, setCreateSlotsLoading] = useState(false)
   const [createName, setCreateName] = useState('')
   const [createPhone, setCreatePhone] = useState('')
@@ -614,8 +618,8 @@ export default function TimelinePage() {
     setAddStartAt(null)
     setAddStaffId(null)
     getAvailability(addVariantId, date)
-      .then((rows) => {
-        if (!cancelled) setAddSlots(rows)
+      .then(({ slots }) => {
+        if (!cancelled) setAddSlots(slots)
       })
       .catch(() => {
         if (!cancelled) setAddSlotsError('Không tải được khung giờ. Vui lòng thử lại.')
@@ -639,19 +643,23 @@ export default function TimelinePage() {
     let cancelled = false
     setCreateSlotsLoading(true)
     getAvailability(createVariantId, date)
-      .then((rows) => {
+      .then(({ slots, reason }) => {
         if (cancelled) return
-        setCreateSlots(rows)
+        setCreateSlots(slots)
+        setCreateSlotsReason(reason)
         // Mặc định chọn slot đầu nếu giờ hiện tại không nằm trong slot còn trống
         // (tránh trạng thái "đã prefill 11:00 nhưng 11:00 đã qua → rỗng").
-        const first = rows[0]
-        const times = new Set(rows.map((r) => formatHm(r.start_at)))
+        const first = slots[0]
+        const times = new Set(slots.map((r) => formatHm(r.start_at)))
         if (first && !times.has(createTime)) {
           setCreateTime(formatHm(first.start_at))
         }
       })
       .catch(() => {
-        if (!cancelled) setCreateSlots(null)
+        if (!cancelled) {
+          setCreateSlots(null)
+          setCreateSlotsReason(undefined)
+        }
       })
       .finally(() => {
         if (!cancelled) setCreateSlotsLoading(false)
@@ -1572,7 +1580,11 @@ export default function TimelinePage() {
             <p className="ccf-tl-hint">Đang tìm giờ trống…</p>
           ) : (createSlots?.length ?? 0) === 0 ? (
             <Notice tone="warn" style={{ marginTop: 8 }} data-testid="create-booking-no-slots">
-              Không còn giờ trống cho dịch vụ này trong ngày {formatDateNav(date, todayStr)}. Chọn ngày khác.
+              {createSlotsReason === 'no_staff_skilled'
+                ? 'Chưa có kỹ thuật viên nào phục vụ dịch vụ này. Thêm kỹ năng cho một KTV trong Thiết lập.'
+                : createSlotsReason === 'no_staff_on_shift'
+                  ? `Kỹ thuật viên phục vụ dịch vụ này không có ca làm ngày ${formatDateNav(date, todayStr)}. Chọn ngày khác hoặc sửa ca làm việc.`
+                  : `Đã kín giờ cho dịch vụ này trong ngày ${formatDateNav(date, todayStr)}. Chọn ngày khác.`}
             </Notice>
           ) : (
             <>

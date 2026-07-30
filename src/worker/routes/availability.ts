@@ -21,6 +21,15 @@ import { serverNow } from '../lib/clock.ts'
 
 type Bindings = { DB: D1Database }
 
+/**
+ * Lý do lưới slot RỖNG — chỉ có mặt khi `slots` rỗng. Để UI nói ĐÚNG nguyên
+ * nhân thay vì "hết giờ" chung chung:
+ *  - no_staff_skilled : không KTV nào (active) có kỹ năng của dịch vụ này.
+ *  - no_staff_on_shift: có KTV đủ kỹ năng nhưng không ai vào ca ngày đó.
+ *  - fully_booked     : có KTV vào ca nhưng đã kín / chỉ còn giờ đã qua.
+ */
+export type EmptyReason = 'no_staff_skilled' | 'no_staff_on_shift' | 'fully_booked'
+
 const routes = new Hono<{ Bindings: Bindings }>()
 
 function errorBody(code: string, message: string) {
@@ -96,9 +105,10 @@ routes.get('/api/availability', async (c) => {
   const candidates = (await candidateStmt.all<Pick<Staff, 'id' | 'active'>>()).results
 
   // No candidate (unknown/inactive/unskilled staff, or nobody has the skill)
-  // is a legitimate empty answer, not an error.
+  // is a legitimate empty answer, not an error. `reason` lets the UI phrase WHY
+  // it's empty (không có KTV phục vụ dịch vụ) instead of a generic "hết giờ".
   if (candidates.length === 0) {
-    return c.json({ slots: [] })
+    return c.json({ slots: [], reason: 'no_staff_skilled' as EmptyReason })
   }
 
   const ids = candidates.map((s) => s.id)
@@ -145,7 +155,13 @@ routes.get('/api/availability', async (c) => {
     now: serverNow(c),
   })
 
-  return c.json({ slots })
+  if (slots.length > 0) return c.json({ slots })
+
+  // Empty despite having skilled candidates → phân biệt "không ai có ca hôm
+  // nay" (KTV phục vụ dịch vụ này đều nghỉ) với "kín/đã qua giờ" (có ca nhưng
+  // hết chỗ hoặc chỉ còn giờ trong quá khứ). shiftRes rỗng = không ai vào ca.
+  const reason: EmptyReason = shiftRes.results.length === 0 ? 'no_staff_on_shift' : 'fully_booked'
+  return c.json({ slots, reason })
 })
 
 export default routes

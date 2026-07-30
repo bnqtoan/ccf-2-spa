@@ -204,6 +204,8 @@ describe('GET /api/availability — lọc ứng viên', () => {
     const { status, body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`)
     expect(status).toBe(200)
     expect(body.slots).toEqual([])
+    // Có KTV đủ kỹ năng (Lan) nhưng không ai vào ca ngày đó → no_staff_on_shift.
+    expect(body.reason).toBe('no_staff_on_shift')
   })
 
   it('KTV có ca nhưng không có skill của service thì bị loại', async () => {
@@ -216,6 +218,8 @@ describe('GET /api/availability — lọc ứng viên', () => {
 
     const { body } = await getAvailability(`variant_id=${massageVariant}&date=${FUTURE_DATE}`)
     expect(body.slots).toEqual([])
+    // Không KTV nào có skill Massage → no_staff_skilled.
+    expect(body.reason).toBe('no_staff_skilled')
   })
 
   it('KTV inactive bị loại', async () => {
@@ -226,6 +230,33 @@ describe('GET /api/availability — lọc ứng viên', () => {
 
     const { body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`)
     expect(body.slots).toEqual([])
+    // KTV duy nhất có skill lại inactive → candidate rỗng → no_staff_skilled.
+    expect(body.reason).toBe('no_staff_skilled')
+  })
+
+  it('có KTV vào ca nhưng kín chỗ cả ngày → reason fully_booked', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    // Ca ngắn 09:00–10:10 = vừa đúng một block 60+10 → chỉ một chỗ khả dĩ.
+    await insertShift(lan, FUTURE_WEEKDAY, 540, 610)
+    const variant = await insertVariant(skill, { duration: 60, buffer: 10 })
+    // Chiếm nguyên khối 09:00 + 60' + 10' buffer = 10:10 → không còn chỗ nào lọt.
+    await insertBooking(lan, variant, at(9, 0), 60, 10)
+
+    const { body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`)
+    expect(body.slots).toEqual([])
+    expect(body.reason).toBe('fully_booked')
+  })
+
+  it('khi CÓ slot trả về thì KHÔNG kèm reason', async () => {
+    const skill = await insertSkill('Massage')
+    const lan = await insertStaff('Lan', [skill])
+    await insertShift(lan, FUTURE_WEEKDAY, 540, 1140)
+    const variant = await insertVariant(skill, { duration: 60, buffer: 10 })
+
+    const { body } = await getAvailability(`variant_id=${variant}&date=${FUTURE_DATE}`)
+    expect(body.slots.length).toBeGreaterThan(0)
+    expect(body.reason).toBeUndefined()
   })
 })
 
