@@ -222,6 +222,8 @@ export default function TimelinePage() {
   const [createVariantId, setCreateVariantId] = useState<number | null>(null)
   const [createStaffId, setCreateStaffId] = useState<number | null>(null)
   const [createTime, setCreateTime] = useState('09:00')
+  const [createSlots, setCreateSlots] = useState<AvailabilitySlot[] | null>(null)
+  const [createSlotsLoading, setCreateSlotsLoading] = useState(false)
   const [createName, setCreateName] = useState('')
   const [createPhone, setCreatePhone] = useState('')
   const [createSaving, setCreateSaving] = useState(false)
@@ -626,6 +628,31 @@ export default function TimelinePage() {
     }
   }, [addVariantId, date])
 
+  // T-29 fix: KTV dropdown trong sheet đặt lịch phải LỌC theo engine availability
+  // (skill + còn slot), không liệt kê tất cả staff → tránh chọn KTV không đủ ĐK
+  // rồi lỗi lúc submit. Dùng lại GET /api/availability y như luồng khách.
+  useEffect(() => {
+    if (createVariantId === null) {
+      setCreateSlots(null)
+      return
+    }
+    let cancelled = false
+    setCreateSlotsLoading(true)
+    getAvailability(createVariantId, date)
+      .then((rows) => {
+        if (!cancelled) setCreateSlots(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setCreateSlots(null)
+      })
+      .finally(() => {
+        if (!cancelled) setCreateSlotsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [createVariantId, date])
+
   const selectedItem: { item: ScheduleItem; staffName: string } | null = useMemo(() => {
     if (selectedItemId === null || schedule === null) return null
     for (const s of schedule.staff) {
@@ -692,6 +719,29 @@ export default function TimelinePage() {
   }
 
   const staff = schedule?.staff ?? []
+
+  // T-29 fix: KTV đủ điều kiện cho ĐÚNG giờ đang chọn trong sheet đặt lịch —
+  // giao của staff hiển thị với staff_ids của slot khớp createTime (engine đã
+  // lọc skill + còn chỗ). null = chưa chọn gói (chưa gọi availability).
+  const createEligibleStaff = useMemo<{ id: number; name: string }[] | null>(() => {
+    if (createSlots === null) return null
+    const hm = parseHm(createTime)
+    if (hm === null) return []
+    const wantMin = hm.hh * 60 + hm.mm
+    const slot = createSlots.find((s) => minutesOfLocalDay(s.start_at) === wantMin)
+    if (!slot) return []
+    const ids = new Set(slot.staff_ids)
+    return staff.filter((s) => ids.has(s.id))
+  }, [createSlots, createTime, staff])
+
+  // Nếu KTV đang chọn không còn đủ điều kiện (đổi giờ/gói) → bỏ chọn, tránh
+  // submit một lựa chọn không hợp lệ.
+  useEffect(() => {
+    if (createStaffId === null || createEligibleStaff === null) return
+    if (!createEligibleStaff.some((s) => s.id === createStaffId)) {
+      setCreateStaffId(null)
+    }
+  }, [createEligibleStaff, createStaffId])
   const { firstHour, lastHour } = computeHourRange(staff)
   const hours: number[] = []
   for (let h = firstHour; h <= lastHour; h++) hours.push(h)
@@ -1453,7 +1503,7 @@ export default function TimelinePage() {
             </Notice>
           )}
 
-          <div className="ccf-tl-label">Khách hàng</div>
+          <div className="ccf-tl-section">Khách hàng</div>
           <Field
             label="Tên khách"
             data-testid="create-booking-name"
@@ -1471,7 +1521,7 @@ export default function TimelinePage() {
             onChange={(e) => setCreatePhone(e.target.value)}
           />
 
-          <div className="ccf-tl-label">Dịch vụ</div>
+          <div className="ccf-tl-section">Dịch vụ</div>
           <Field
             as="select"
             label="Dịch vụ"
@@ -1509,7 +1559,7 @@ export default function TimelinePage() {
               )
             })()}
 
-          <div className="ccf-tl-label">Giờ + kỹ thuật viên · {formatDateNav(date, todayStr)}</div>
+          <div className="ccf-tl-section">Giờ + kỹ thuật viên · {formatDateNav(date, todayStr)}</div>
           <Field
             label="Giờ bắt đầu"
             type="time"
@@ -1519,18 +1569,33 @@ export default function TimelinePage() {
           />
           <Field
             as="select"
-            label="Kỹ thuật viên"
+            label="Kỹ thuật viên (chỉ hiện người đủ kỹ năng + còn trống giờ này)"
             data-testid="create-booking-staff-select"
             value={createStaffId ?? ''}
+            disabled={createVariantId === null}
             onChange={(e) => setCreateStaffId(e.target.value === '' ? null : Number(e.target.value))}
           >
-            <option value="">— Chọn kỹ thuật viên —</option>
-            {staff.map((s) => (
+            <option value="">
+              {createVariantId === null
+                ? '— Chọn gói trước —'
+                : createSlotsLoading
+                  ? '— Đang tìm người phù hợp… —'
+                  : '— Chọn kỹ thuật viên —'}
+            </option>
+            {(createEligibleStaff ?? []).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
             ))}
           </Field>
+          {createVariantId !== null &&
+            !createSlotsLoading &&
+            createEligibleStaff !== null &&
+            createEligibleStaff.length === 0 && (
+              <Notice tone="warn" style={{ marginTop: 8 }} data-testid="create-booking-no-staff">
+                Không có kỹ thuật viên nào đủ kỹ năng và còn trống vào {createTime}. Chọn giờ khác.
+              </Notice>
+            )}
         </div>
       </Sheet>
 
