@@ -274,6 +274,19 @@
   outline-offset: -3px;
   background: var(--g-50);
 }
+/* Giờ đã qua trong NGÀY HÔM NAY: ô trống hiện mờ + gạch chéo nhạt, không bấm
+   được — báo rõ "không đặt vào quá khứ" thay vì để lễ tân bấm rồi gặp lưới rỗng. */
+.ccf-tl-cell--past {
+  cursor: not-allowed;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--bg, #eeecfb),
+    var(--bg, #eeecfb) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+  opacity: 0.55;
+}
 
 /* ---------- event blocks (prototype dòng 272-284) ---------- */
 .ccf-tl-ev {

@@ -764,6 +764,13 @@ export default function TimelinePage() {
   for (let h = firstHour; h <= lastHour; h++) hours.push(h)
   const gridStartMinute = firstHour * 60
 
+  // Giờ ĐÃ QUA (chỉ khi đang xem NGÀY HÔM NAY): một ô giờ h phủ [h:00, h+1:00);
+  // nếu cả giờ đó đã trôi qua so với "bây giờ" thì đặt lịch vào đó là vô nghĩa
+  // (server sẽ từ chối slot quá khứ). Làm ô đó KHÔNG bấm được + hiện mờ, để lễ
+  // tân không mất công bấm rồi gặp lưới rỗng. Ngày khác hôm nay → không chặn gì.
+  const nowMinIfToday = date === todayStr ? minutesOfLocalDay(Math.floor(Date.now() / 1000)) : null
+  const isPastHour = (h: number): boolean => nowMinIfToday !== null && (h + 1) * 60 <= nowMinIfToday
+
   return (
     <div className="ccf-tl-page">
       {queueCount > 0 && (
@@ -939,7 +946,8 @@ export default function TimelinePage() {
                   // bấm (card: "click ô trống -> tạo object prefill"). Chỉ owner/
                   // lễ tân thấy được thao tác này ở UI — server vẫn là gate thật.
                   const isEmptyCell = itemsInHour.length === 0 && offInHour === undefined
-                  const cellIsClickable = isEmptyCell && canAddService
+                  const hourIsPast = isPastHour(h)
+                  const cellIsClickable = isEmptyCell && canAddService && !hourIsPast
 
                   // T-30: ô là ĐÍCH THẢ khi lễ tân đang kéo một block. Cho phép
                   // thả cả lên ô có/không có booking (giờ mới có thể chồng nhẹ
@@ -954,7 +962,8 @@ export default function TimelinePage() {
                     <div
                       className={`ccf-tl-cell${cellIsClickable ? ' ccf-tl-cell--clickable' : ''}${
                         isDropHighlight ? ' ccf-tl-cell--droptarget' : ''
-                      }`}
+                      }${hourIsPast && isEmptyCell ? ' ccf-tl-cell--past' : ''}`}
+                      title={hourIsPast && isEmptyCell ? 'Đã qua giờ này' : undefined}
                       key={`cell-${h}-${s.id}`}
                       data-testid={`cell-${s.id}-${h}`}
                       onClick={cellIsClickable ? () => openCreateBookingAt(s.id, h) : undefined}
@@ -1589,8 +1598,21 @@ export default function TimelinePage() {
                 : createSlotsReason === 'no_staff_on_shift'
                   ? `Kỹ thuật viên phục vụ dịch vụ này không có ca làm ngày ${formatDateNav(date, todayStr)}. Chọn ngày khác hoặc sửa ca làm việc.`
                   : createSlotsReason === 'day_over'
-                    ? `Đã qua giờ đặt cho dịch vụ này trong ${formatDateNav(date, todayStr)} (không đủ thời gian trước giờ đóng cửa). Chọn ngày khác.`
-                    : `Đã kín giờ cho dịch vụ này trong ngày ${formatDateNav(date, todayStr)}. Chọn ngày khác.`}
+                    ? `Đã qua giờ đặt cho dịch vụ này trong ${formatDateNav(date, todayStr)} (không đủ thời gian trước giờ đóng cửa).`
+                    : `Đã kín giờ cho dịch vụ này trong ngày ${formatDateNav(date, todayStr)}.`}
+              {createSlotsReason !== 'no_staff_skilled' && (
+                // Giúp lễ tân đỡ một bước: nhảy thẳng sang ngày mai (effect theo
+                // `date` tự nạp lại giờ trống, sheet vẫn mở, dịch vụ đã chọn giữ nguyên).
+                <div style={{ marginTop: 8 }}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setDate(addDays(date, 1))}
+                    data-testid="create-booking-next-day"
+                  >
+                    Xem ngày mai →
+                  </Button>
+                </div>
+              )}
             </Notice>
           ) : (
             <>
