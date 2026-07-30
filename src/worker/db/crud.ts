@@ -163,6 +163,33 @@ export async function deleteShift(db: D1Database, id: number): Promise<boolean> 
   return true
 }
 
+/**
+ * Thay TOÀN BỘ tuần mẫu của một KTV nguyên tử (T-36): xoá hết dòng cũ của KTV
+ * rồi chèn danh sách mới trong MỘT db.batch() — hoặc tất cả thành công, hoặc
+ * không đổi gì. Tránh "tuần nửa vời" khi diff xoá-tạo-lại ở client lỗi giữa
+ * chừng. Engine đọc work_shifts không đổi — đây chỉ là cách GHI khác.
+ */
+export async function replaceStaffWeek(
+  db: D1Database,
+  staffId: number,
+  rows: { weekday: number; start_min: number; end_min: number }[],
+): Promise<WorkShift[]> {
+  const statements = [
+    db.prepare('DELETE FROM work_shifts WHERE staff_id = ?').bind(staffId),
+    ...rows.map((r) =>
+      db
+        .prepare('INSERT INTO work_shifts (staff_id, weekday, start_min, end_min) VALUES (?, ?, ?, ?)')
+        .bind(staffId, r.weekday, r.start_min, r.end_min),
+    ),
+  ]
+  await db.batch(statements)
+  const result = await db
+    .prepare('SELECT id, staff_id, weekday, start_min, end_min FROM work_shifts WHERE staff_id = ? ORDER BY weekday, start_min')
+    .bind(staffId)
+    .all<WorkShift>()
+  return result.results
+}
+
 export async function skillExists(db: D1Database, id: number): Promise<boolean> {
   return Boolean(await db.prepare('SELECT 1 FROM skills WHERE id = ?').bind(id).first())
 }

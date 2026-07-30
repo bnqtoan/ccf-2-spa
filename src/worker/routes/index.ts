@@ -13,6 +13,7 @@ import services from './services.ts'
 import adminSchedule from './admin-schedule.ts'
 import adminAppointmentItems from './admin-appointment-items.ts'
 import adminStaffItems from './admin-staff-items.ts'
+import adminStaffShifts from './admin-staff-shifts.ts'
 import combo from './combo.ts'
 import adminOverview from './admin-overview.ts'
 import adminUsers from './admin-users.ts'
@@ -80,6 +81,7 @@ export function registerRoutes(app: Hono) {
   app.route('/', adminSchedule) // T-16
   app.route('/', adminAppointmentItems) // T-16
   app.route('/', adminStaffItems) // TRACK-A: G0 upcoming-items guard
+  app.route('/', adminStaffShifts) // T-36 — thay tuần mẫu của KTV nguyên tử
   app.route('/', combo) // R1a — serial combo (customer multi-select)
   app.route('/', adminOverview) // Track C — R5 occupancy + R2 revenue/payroll
   app.route('/', adminUsers) // T-22 — quản lý user (owner-only, gated ở trên)

@@ -220,66 +220,78 @@ test.describe('Thiết lập — Dịch vụ', () => {
   })
 })
 
-test.describe('Thiết lập — Ca làm việc', () => {
-  test('đặt ca làm việc cho nhân viên vào một thứ với giờ bắt đầu/kết thúc thì ca xuất hiện', async ({
+test.describe('Thiết lập — Ca làm việc (tuần mẫu)', () => {
+  test('đặt cả tuần cho một KTV (bật T2–T6 09–17, tắt T7/CN) → lưu → tải lại thấy đúng', async ({
     page,
     request,
   }) => {
     const tag = uniqueTag()
-    const staffName = `E2E Setup Shift KTV ${tag}`
+    const staffName = `E2E Setup Week KTV ${tag}`
     const staffId = await postId(request, '/api/admin/staff', { name: staffName, phone: null })
 
     await page.goto('/admin/setup')
     await page.getByTestId('setup-tab-shifts').click()
     await page.getByTestId('shift-staff-select').selectOption({ label: staffName })
-    await page.getByTestId('shift-weekday-select').selectOption('1') // Thứ Hai
-    await page.getByTestId('shift-start-input').fill('09:00')
-    await page.getByTestId('shift-end-input').fill('17:00')
-    await page.getByTestId('shift-add-submit').click()
 
-    const list = page.getByTestId('shift-list')
-    await expect(list).toContainText(staffName)
-    await expect(list).toContainText('Thứ Hai')
-    await expect(list).toContainText('09:00 – 17:00')
+    // Bật T2..T6 (weekday 1..5), đặt 09:00–17:00. T7 (6) và CN (0) để tắt.
+    for (const wd of [1, 2, 3, 4, 5]) {
+      await page.getByTestId(`shift-day-toggle-${wd}`).check()
+      await page.getByTestId(`shift-day-start-${wd}`).fill('09:00')
+      await page.getByTestId(`shift-day-end-${wd}`).fill('17:00')
+    }
+    await page.getByTestId('shift-save-week').click()
+    await expect(page.getByTestId('shift-saved')).toBeVisible()
 
-    // Định nghĩa "xong" của card: ca vừa đặt phải khiến nhân viên này xuất
-    // hiện thành một cột trên /admin/timeline vào đúng thứ đó (dùng shift đã
-    // seed 00:00-24:00 mọi ngày làm oracle gián tiếp là quá phức tạp — ở đây
-    // khẳng định trực tiếp việc ca đã lưu đúng phút-từ-nửa-đêm qua API để
-    // chốt cạm bẫy start_min/epoch, timeline đã có test riêng ở T-12).
+    // Tải lại trang, chọn lại KTV → lưới prefill đúng những gì đã lưu.
+    await page.reload()
+    await page.getByTestId('setup-tab-shifts').click()
+    await page.getByTestId('shift-staff-select').selectOption({ label: staffName })
+    for (const wd of [1, 2, 3, 4, 5]) {
+      await expect(page.getByTestId(`shift-day-toggle-${wd}`)).toBeChecked()
+      await expect(page.getByTestId(`shift-day-start-${wd}`)).toHaveValue('09:00')
+      await expect(page.getByTestId(`shift-day-end-${wd}`)).toHaveValue('17:00')
+    }
+    // T7/CN vẫn tắt (không có input giờ).
+    await expect(page.getByTestId('shift-day-toggle-6')).not.toBeChecked()
+    await expect(page.getByTestId('shift-day-toggle-0')).not.toBeChecked()
+
+    // Chốt cạm bẫy start_min/epoch + weekday-mapping qua API: đúng 5 dòng,
+    // weekday 1..5, 540..1020 phút-từ-nửa-đêm.
     const shifts = (await (await request.get('/api/admin/shifts')).json()) as {
       staff_id: number
       weekday: number
       start_min: number
       end_min: number
     }[]
-    const created = shifts.find((s) => s.staff_id === staffId)
-    expect(created).toBeTruthy()
-    expect(created?.weekday).toBe(1)
-    expect(created?.start_min).toBe(540)
-    expect(created?.end_min).toBe(1020)
+    const mine = shifts.filter((s) => s.staff_id === staffId).sort((a, b) => a.weekday - b.weekday)
+    expect(mine.map((s) => s.weekday)).toEqual([1, 2, 3, 4, 5])
+    expect(mine.every((s) => s.start_min === 540 && s.end_min === 1020)).toBe(true)
   })
 
-  test('đặt ca với giờ kết thúc sớm hơn giờ bắt đầu bị chặn', async ({ page, request }) => {
+  test('một ngày có giờ ra ≤ giờ vào thì cả tuần bị chặn, báo thân thiện, không gọi API', async ({
+    page,
+    request,
+  }) => {
     const tag = uniqueTag()
-    const staffName = `E2E Setup Bad Shift KTV ${tag}`
+    const staffName = `E2E Setup Bad Week KTV ${tag}`
     await postId(request, '/api/admin/staff', { name: staffName, phone: null })
 
     await page.goto('/admin/setup')
     await page.getByTestId('setup-tab-shifts').click()
     await page.getByTestId('shift-staff-select').selectOption({ label: staffName })
-    await page.getByTestId('shift-weekday-select').selectOption('2')
-    await page.getByTestId('shift-start-input').fill('17:00')
-    await page.getByTestId('shift-end-input').fill('09:00')
 
-    let sawShiftPost = false
+    await page.getByTestId('shift-day-toggle-3').check() // Thứ Tư
+    await page.getByTestId('shift-day-start-3').fill('17:00')
+    await page.getByTestId('shift-day-end-3').fill('09:00')
+
+    let sawSave = false
     page.on('request', (req) => {
-      if (req.method() === 'POST' && req.url().includes('/api/admin/shifts')) sawShiftPost = true
+      if (req.method() === 'PUT' && req.url().includes('/shifts')) sawSave = true
     })
-    await page.getByTestId('shift-add-submit').click()
+    await page.getByTestId('shift-save-week').click()
 
     await expect(page.getByTestId('shift-error')).toBeVisible()
-    expect(sawShiftPost).toBe(false)
+    expect(sawSave).toBe(false)
   })
 })
 
@@ -302,6 +314,8 @@ test.describe('Thiết lập — vùng chạm', () => {
     await assertTapTargets(['service-add-submit'])
 
     await page.getByTestId('setup-tab-shifts').click()
-    await assertTapTargets(['shift-add-submit'])
+    // Nút "Lưu tuần" chỉ hiện sau khi chọn KTV — chọn KTV đầu tiên trong seed.
+    await page.getByTestId('shift-staff-select').selectOption({ index: 1 })
+    await assertTapTargets(['shift-save-week'])
   })
 })
