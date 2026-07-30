@@ -1,7 +1,7 @@
 ---
 id: T-31
 title: Timeline week view + chọn ngày + nút "Hôm nay"
-status: todo
+status: review
 model: sonnet
 effort: medium
 depends_on: ["T-12"]
@@ -15,7 +15,7 @@ touches:
 prd_refs: []
 owner: null
 started_at: null
-finished_at: null
+finished_at: 2026-07-30
 ---
 
 # T-31 · Timeline week view + chọn ngày + nút "Hôm nay"
@@ -90,4 +90,28 @@ hôm nay bằng 1 nút.
 - Giữ tương thích `?date=` nếu mở rộng endpoint cũ.
 
 ## Đã làm gì
-(agent điền khi xong)
+- Backend: mở rộng `GET /api/admin/schedule` để nhận thêm `?from=&to=` (range
+  tối đa 7 ngày, MỘT truy vấn items + MỘT truy vấn time_off cho cả range, bucket
+  theo ngày trong bộ nhớ) — giữ nguyên `?date=` không đổi hành vi cho T-29/T-30/
+  day view. Trả `{ from, to, days: [{date, staff}, ...] }`.
+- Frontend: toggle "Ngày"/"Tuần" trên qbar, nút "Hôm nay", `<input type="date">`
+  để nhảy ngày. Week view là 7 cột đọc-only (không drag/tạo — đúng "Ngoài" của
+  card): mỗi cột hiện số lịch hẹn sống (booked/in_service), badge "Trống lịch"
+  khi rỗng, badge số lịch + "Nghỉ" theo từng KTV, badge cảnh báo số lịch mồ côi;
+  bấm một cột nhảy sang day view đúng ngày đó (giữ context).
+- Rebase lên `main` sau khi T-29 + T-30 merge (cả hai cùng sửa `TimelinePage.tsx`
+  + `api.ts`): auto-merge sạch 3/4 file, 1 conflict thủ công ở
+  `tests/e2e/admin-timeline.spec.ts` (thứ tự nối hai khối test T-30 kéo-thả +
+  T-31 week/hôm-nay) — giải quyết bằng cách giữ nguyên cả hai khối tuần tự,
+  không xoá test nào của T-30.
+- Test: 7 case API mới cho range (7 ngày liên tiếp, ngày bận vs ngày trống, quá
+  7 ngày → 422, to trước from → 422, sai định dạng → 422, thiếu to → 422,
+  booking vắt nửa đêm đầu range) + 4 case E2E (toggle→7 cột, ngày bận≠ngày
+  trống trên week, Hôm nay về đúng ngày, date picker nhảy ngày).
+- Xác nhận: `npm run typecheck` xanh; `npm test` 438/438 xanh (27 file, tăng từ
+  431 baseline T-29+T-30 nhờ 7 test range mới); E2E `admin-timeline.spec.ts`
+  23/23 xanh và cả `chromium-shared-queue` 36/36 xanh (CI=true, workers=1, port
+  riêng — không đụng cross-worktree). Full `chromium` project (59 test, serial)
+  57 passed / 1 failed đúng-y ca đã biết trước (`customer-reschedule.spec.ts:70`,
+  `rs-slot-`) — tái hiện được cả khi chạy cô lập hoàn toàn, xác nhận đây là bug
+  môi trường có sẵn trên `main`, không liên quan T-31.
