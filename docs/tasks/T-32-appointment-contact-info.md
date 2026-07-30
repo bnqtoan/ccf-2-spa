@@ -1,7 +1,7 @@
 ---
 id: T-32
 title: Hiện tên + SĐT khách + nút gọi trên sheet chi tiết lịch
-status: todo
+status: review
 model: sonnet
 effort: low
 depends_on: ["T-12"]
@@ -14,7 +14,7 @@ touches:
 prd_refs: []
 owner: null
 started_at: null
-finished_at: null
+finished_at: 2026-07-30
 ---
 
 # T-32 · Hiện tên + SĐT khách + nút gọi trên sheet chi tiết lịch
@@ -78,4 +78,15 @@ Từ sheet chi tiết của một lịch thường, lễ tân thấy được s�
 - Đừng lộ PII vượt mức (chỉ tên+SĐT).
 
 ## Đã làm gì
-(agent điền khi xong)
+Kiểm `admin-schedule.ts`: payload sheet (cả `?date=` và `?from=&to=`) chỉ có
+`customer_name`, KHÔNG có phone → phải sửa backend, không chỉ render. Thêm
+`c.phone AS customer_phone` vào 2 câu SQL (day mode + range mode), field
+`customer_phone: string | null` vào `ItemRow`/`mapItemRow` và `ScheduleItem`
+(api.ts). RBAC không cần code mới: `resolveOnlyStaffId` đã lọc technician chỉ
+thấy item của mình ở cả 3 query — thêm phone vào payload tự động kế thừa đúng
+default "technician thấy SĐT khách của lịch mình phục vụ". Sheet chi tiết
+(TimelinePage.tsx) thêm dòng "SĐT" + nút gọi `tel:` tái tạo đúng style
+`.ccf-rq-tel` của ReassignSheet (inline, vì `reassign.css` không nằm trong
+touches) — ẩn hẳn khi `customer_phone` null (khách lẻ, CONVENTIONS §4). Thêm 4
+test API (phone có/null, range mode, RBAC technician) + 2 test E2E (hiện
+tên+SĐT+nút gọi đúng `tel:`, ẩn nút khi không có SĐT).

@@ -1062,6 +1062,41 @@ export default function TimelinePage() {
               </div>
             </div>
 
+            {/* T-32: SĐT + nút gọi — trước đây chỉ hàng chờ reassign mới thấy
+                số khách; lịch bình thường thì không, dù lễ tân cần gọi ngay từ
+                sheet chi tiết (G5, "Relationship opacity"). Nhất quán với
+                ReassignSheet (`.ccf-rq-tel`, src/app/routes/admin/reassign/
+                ReassignSheet.tsx) — cùng style tap-target ≥48px + contrast đã
+                đo, tái tạo inline vì reassign.css không nằm trong touches của
+                card này. */}
+            {selectedItem.item.customer_phone && (
+              <div className="ccf-tl-sline">
+                <span className="ccf-tl-k">SĐT</span>
+                <span className="ccf-tl-v">
+                  <a
+                    href={`tel:${selectedItem.item.customer_phone.replace(/\s/g, '')}`}
+                    data-testid="booking-call-customer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      minHeight: 48,
+                      padding: '0 16px',
+                      borderRadius: 12,
+                      background: 'var(--white)',
+                      border: '1.5px solid #eec5c1',
+                      fontWeight: 650,
+                      fontSize: 15,
+                      color: 'var(--danger)',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    📞 {selectedItem.item.customer_phone}
+                  </a>
+                </span>
+              </div>
+            )}
+
             {statusError && (
               <Notice tone="warn" style={{ marginTop: 14 }}>
                 {statusError}

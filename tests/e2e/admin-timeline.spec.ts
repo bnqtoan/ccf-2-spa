@@ -85,15 +85,19 @@ function seedBookingItem(opts: {
   status?: string
   source?: string
   customerSuffix: string
+  /** T-32: SĐT khách — mặc định NULL (khách lẻ vãng lai, CONVENTIONS §4). */
+  customerPhone?: string | null
 }): SeededItem {
   const { staffName, serviceName, variantName, hour, status = 'booked', source = 'online', customerSuffix } = opts
   const minute = opts.minute ?? 0
+  const customerPhone = opts.customerPhone ?? null
   const startAt = localToEpoch(TARGET_DATE, hour, minute)
   const nowSec = Math.floor(Date.now() / 1000)
   const custName = `E2E TL ${customerSuffix} ${Date.now()}-${Math.floor(Math.random() * 100000)}`
+  const phoneSql = customerPhone === null ? 'NULL' : `'${customerPhone}'`
 
   runSql(`
-INSERT INTO customers (name, phone) VALUES ('${custName}', NULL);
+INSERT INTO customers (name, phone) VALUES ('${custName}', ${phoneSql});
 INSERT INTO appointments (customer_id, start_at, end_at, status, source, created_at)
   SELECT (SELECT id FROM customers WHERE name = '${custName}'),
          ${startAt},
@@ -382,6 +386,59 @@ WHERE status IN ('booked','in_service')
     await expect(page.getByTestId('sheet-status')).toContainText('Đã đặt')
   })
 
+  // T-32: trước đây sheet chi tiết của một lịch BÌNH THƯỜNG không hiện SĐT
+  // (chỉ hàng chờ reassign mới hiện) — lễ tân không gọi được khách ngay từ
+  // đây. Giờ sheet phải hiện tên + SĐT + nút gọi `tel:` đúng số.
+  test('bấm block có khách → sheet hiện tên + SĐT + nút gọi tel: đúng số', async ({ page }) => {
+    // Dùng Mai (không phải Huong — mọi giờ 8-18 của Huong trong file này đã
+    // kín hoặc kề sát ô 15:00 phải giữ TRỐNG cho test "bấm ô trống
+    // Huong@15:00") @11:00, "Sơn gel" (45'+5' buffer, xong 11:50) — Mai chỉ có
+    // lịch ở 9h ("Sơn gel", xong 09:50) và bị time_off 14-19h ở test trước đó
+    // trong file này, nên 11h chắc chắn trống.
+    const seeded = seedBookingItem({
+      staffName: 'Mai',
+      serviceName: 'Chăm sóc móng',
+      variantName: 'Sơn gel',
+      hour: 11,
+      customerSuffix: 'Phone',
+      customerPhone: '0909111222',
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    await page.getByTestId(`booking-item-${seeded.itemId}`).click()
+    await expect(page.getByTestId('booking-sheet')).toBeVisible()
+
+    const callBtn = page.getByTestId('booking-call-customer')
+    await expect(callBtn).toBeVisible()
+    await expect(callBtn).toHaveText(/0909111222/)
+    await expect(callBtn).toHaveAttribute('href', 'tel:0909111222')
+  })
+
+  test('khách lẻ không có SĐT → sheet không hiện nút gọi', async ({ page }) => {
+    // Mai@13:00 — KHÔNG dùng Huong: lịch Huong trong file này gần như kín hết,
+    // và test reschedule bên dưới cần đúng Huong@11:00 TRỐNG để dời lịch vào.
+    // Mai chỉ có "Sơn gel"@9h (xong 09:50) + "Sơn gel"@11h (test phone bên
+    // trên, xong 11:50) + time_off 14-19h (test trước đó trong file) — 13h
+    // chắc chắn trống.
+    const seeded = seedBookingItem({
+      staffName: 'Mai',
+      serviceName: 'Chăm sóc móng',
+      variantName: 'Sơn gel',
+      hour: 13,
+      customerSuffix: 'NoPhone',
+      customerPhone: null,
+    })
+
+    await page.goto('/admin/timeline')
+    await goToTargetDate(page)
+
+    await page.getByTestId(`booking-item-${seeded.itemId}`).click()
+    await expect(page.getByTestId('booking-sheet')).toBeVisible()
+    await expect(page.getByTestId('booking-call-customer')).toHaveCount(0)
+  })
+
   test('đổi trạng thái sang đang làm trong sheet cập nhật ngay màu block trên timeline không cần tải lại trang', async ({
     page,
   }) => {
@@ -514,7 +571,7 @@ WHERE status IN ('booked','in_service')
     page,
   }) => {
     // Huong (KHÔNG dính seedTimeOff 14-19h của Trang/Yen/Lan/Mai ở các test
-    // trên) @15:00 — giờ chưa ai chiếm trong file này (8/9/10/12/13/17 đã dùng).
+    // trên) @15:00 — giờ chưa ai chiếm trong file này (8/9/10/11/12/13/14/17 đã dùng).
     await page.goto('/admin/timeline')
     await goToTargetDate(page)
 

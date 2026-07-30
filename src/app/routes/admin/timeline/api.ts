@@ -19,6 +19,10 @@ export interface ScheduleItem {
   status: BookingItemStatus
   source: BookingItemSource
   customer_name: string
+  /** T-32: SĐT khách — nullable (CONVENTIONS §4: khách lẻ chỉ có tên). RBAC đã
+   *  lọc ở server (`admin-schedule.ts`): technician chỉ nhận item của chính
+   *  mình nên phone chỉ lộ cho KTV đang phục vụ khách đó. */
+  customer_phone: string | null
   service_name: string
   variant_name: string
 }
