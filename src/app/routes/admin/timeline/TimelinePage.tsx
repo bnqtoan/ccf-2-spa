@@ -124,9 +124,18 @@ function rescheduleErrorMessage(err: unknown): string {
  * hẹp khi ngày trống lịch.
  */
 function computeHourRange(staff: ScheduleStaff[]): { firstHour: number; lastHour: number } {
-  let minMinute = 8 * 60
-  let maxMinute = 20 * 60
+  // Khung giờ lưới bám theo CA LÀM VIỆC thật của ngày, KHÔNG hardcode 08–20.
+  // Trước đây cố định max=20:00 nên lưới luôn vẽ ô 19:00/20:00 dù mọi KTV đóng
+  // ca 19:00 → ô trông đặt được nhưng engine từ chối ("thấy mà không đặt được").
+  // Nếu KHÔNG có dữ liệu ca (payload cũ) thì lùi về mặc định 09–19 (giờ spa seed).
+  let minMinute = Infinity
+  let maxMinute = -Infinity
   for (const s of staff) {
+    if (s.shift) {
+      minMinute = Math.min(minMinute, s.shift.start_min)
+      maxMinute = Math.max(maxMinute, s.shift.end_min)
+    }
+    // Booking/nghỉ nằm ngoài ca (dữ liệu cũ, đổi ca sau khi đặt) vẫn phải HIỆN.
     for (const item of s.items) {
       minMinute = Math.min(minMinute, minutesOfLocalDay(item.start_at))
       maxMinute = Math.max(maxMinute, minutesOfLocalDay(item.block_end_at))
@@ -135,6 +144,10 @@ function computeHourRange(staff: ScheduleStaff[]): { firstHour: number; lastHour
       minMinute = Math.min(minMinute, minutesOfLocalDay(off.start_at))
       maxMinute = Math.max(maxMinute, minutesOfLocalDay(off.end_at))
     }
+  }
+  if (!Number.isFinite(minMinute)) {
+    minMinute = 9 * 60
+    maxMinute = 19 * 60
   }
   const firstHour = Math.floor(minMinute / 60)
   const lastHour = Math.ceil(maxMinute / 60) // +1 giờ đệm tự nhiên từ ceil
@@ -955,7 +968,15 @@ export default function TimelinePage() {
                   // KTV không có ca ngày này → cả cột không đặt được (server cũng
                   // từ chối). Ô còn booking cũ vẫn hiện; chỉ chặn ô TRỐNG.
                   const staffOffShift = s.shift === null
-                  const cellIsClickable = isEmptyCell && canAddService && !hourIsPast && !staffOffShift
+                  // Giờ NGOÀI ca của chính KTV này: một slot đặt được phải BẮT ĐẦU
+                  // trong ca, nên ô h chỉ đặt được khi [h:00) nằm trong [start,end).
+                  // Đây là fix cho "thấy ô 19:00/20:00 nhưng không đặt được": mọi KTV
+                  // đóng ca 19:00 → các ô từ 19:00 trở đi ngoài ca → không bấm được.
+                  // shift === undefined (payload thiếu field) → coi như trong ca (không chặn).
+                  const hourOutsideShift =
+                    s.shift != null && (hourStartMin < s.shift.start_min || hourStartMin >= s.shift.end_min)
+                  const notBookableHour = hourIsPast || staffOffShift || hourOutsideShift
+                  const cellIsClickable = isEmptyCell && canAddService && !notBookableHour
 
                   // T-30: ô là ĐÍCH THẢ khi lễ tân đang kéo một block. Cho phép
                   // thả cả lên ô có/không có booking (giờ mới có thể chồng nhẹ
@@ -970,13 +991,17 @@ export default function TimelinePage() {
                     <div
                       className={`ccf-tl-cell${cellIsClickable ? ' ccf-tl-cell--clickable' : ''}${
                         isDropHighlight ? ' ccf-tl-cell--droptarget' : ''
-                      }${(hourIsPast || staffOffShift) && isEmptyCell ? ' ccf-tl-cell--past' : ''}`}
+                      }${notBookableHour && isEmptyCell ? ' ccf-tl-cell--past' : ''}`}
                       title={
-                        staffOffShift && isEmptyCell
-                          ? 'KTV không có ca làm ngày này'
-                          : hourIsPast && isEmptyCell
-                            ? 'Đã qua giờ này'
-                            : undefined
+                        !isEmptyCell
+                          ? undefined
+                          : staffOffShift
+                            ? 'KTV không có ca làm ngày này'
+                            : hourOutsideShift
+                              ? 'Ngoài giờ làm việc'
+                              : hourIsPast
+                                ? 'Đã qua giờ này'
+                                : undefined
                       }
                       key={`cell-${h}-${s.id}`}
                       data-testid={`cell-${s.id}-${h}`}
@@ -1838,27 +1863,43 @@ function WeekView({ weekDays, loading, error, todayStr, orphanIds, onPickDay }: 
               </div>
             )}
 
-            <div className="ccf-tl-weekday-staff">
-              {day.staff.map((s) => {
-                const liveCount = s.items.filter((i) => LIVE_STATUSES.has(i.status)).length
-                const hasTimeOff = s.time_off.length > 0
-                return (
-                  <div className="ccf-tl-weekday-srow" key={s.id} data-testid={`week-day-${day.date}-staff-${s.id}`}>
-                    <span className="ccf-tl-weekday-sname">{s.name}</span>
-                    {hasTimeOff && (
-                      <span className="ccf-tl-weekday-sbadge ccf-tl-weekday-sbadge--off" aria-label="Nghỉ">
-                        Nghỉ
-                      </span>
-                    )}
-                    <span
-                      className={`ccf-tl-weekday-sbadge${liveCount === 0 ? ' ccf-tl-weekday-sbadge--free' : ''}`}
+            {(() => {
+              // Tuần là chế độ NHÌN LƯỚT: chỉ liệt kê KTV ĐÁNG chú ý (có lịch
+              // hoặc đang nghỉ). Số KTV rảnh còn lại gộp thành một dòng "+N rảnh"
+              // để card không thành danh sách dài toàn "Rảnh" (nhất là spa đông KTV).
+              const rows = day.staff.map((s) => ({
+                s,
+                liveCount: s.items.filter((i) => LIVE_STATUSES.has(i.status)).length,
+                hasTimeOff: s.time_off.length > 0,
+              }))
+              const notable = rows.filter((r) => r.liveCount > 0 || r.hasTimeOff)
+              const freeCount = rows.length - notable.length
+              if (notable.length === 0 && freeCount === 0) return null
+              return (
+                <div className="ccf-tl-weekday-staff">
+                  {notable.map(({ s, liveCount, hasTimeOff }) => (
+                    <div
+                      className="ccf-tl-weekday-srow"
+                      key={s.id}
+                      data-testid={`week-day-${day.date}-staff-${s.id}`}
                     >
-                      {liveCount === 0 ? 'Rảnh' : liveCount}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
+                      <span className="ccf-tl-weekday-sname">{s.name}</span>
+                      {hasTimeOff && (
+                        <span className="ccf-tl-weekday-sbadge ccf-tl-weekday-sbadge--off" aria-label="Nghỉ">
+                          Nghỉ
+                        </span>
+                      )}
+                      {liveCount > 0 && <span className="ccf-tl-weekday-sbadge">{liveCount}</span>}
+                    </div>
+                  ))}
+                  {freeCount > 0 && (
+                    <div className="ccf-tl-weekday-freeline" data-testid={`week-day-${day.date}-free`}>
+                      {notable.length === 0 ? `Tất cả ${freeCount} KTV rảnh` : `+${freeCount} KTV rảnh`}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </button>
         )
       })}

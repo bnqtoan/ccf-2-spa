@@ -117,99 +117,136 @@
 .ccf-tl-week {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 10px;
+  gap: 14px;
 }
 @media (max-width: 900px) {
   .ccf-tl-week {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   }
 }
 .ccf-tl-weekday {
-  border: 1.5px solid var(--line);
-  border-radius: var(--r);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   background: var(--white);
-  padding: 12px;
+  padding: 16px 14px;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+  transition:
+    border-color 0.15s var(--ease),
+    box-shadow 0.15s var(--ease),
+    transform 0.15s var(--ease);
 }
 .ccf-tl-weekday:hover {
-  border-color: var(--g-600);
-  background: var(--g-50);
+  border-color: var(--g-300);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-2px);
 }
 .ccf-tl-weekday--today {
   border-color: var(--g-600);
-  border-width: 2px;
+  box-shadow: 0 0 0 1px var(--g-600);
 }
+
+/* ----- header: day label, today tag, then the day's summary ----- */
 .ccf-tl-weekday-head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  margin-bottom: 12px;
 }
 .ccf-tl-weekday-label {
-  font-weight: 660;
-  font-size: 13.5px;
+  font-weight: 680;
+  font-size: 14px;
+  color: var(--ink);
+  line-height: 1.3;
 }
 .ccf-tl-weekday-todaytag {
-  font-size: 11px;
+  align-self: flex-start;
+  font-size: 10.5px;
   font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   color: var(--g-600);
+  background: var(--g-100);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 .ccf-tl-weekday-count {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--ink-2);
-  font-weight: 620;
+  font-weight: 640;
 }
 .ccf-tl-weekday-empty {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--ink-3);
 }
 .ccf-tl-weekday-orphan {
   font-size: 12px;
   font-weight: 660;
   color: var(--danger);
+  margin-top: 2px;
 }
+
+/* ----- staff list: divider above, roomy rows, quiet "Rảnh" ----- */
 .ccf-tl-weekday-staff {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
+  gap: 9px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 .ccf-tl-weekday-srow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  font-size: 12.5px;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1;
 }
 .ccf-tl-weekday-sname {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink-2);
+  font-weight: 540;
 }
 .ccf-tl-weekday-sbadge {
   flex-shrink: 0;
-  min-width: 20px;
-  text-align: center;
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
-  background: var(--g-100);
-  color: var(--g-900);
+  background: var(--g-600);
+  color: var(--white);
   font-size: 11.5px;
   font-weight: 700;
-  padding: 1px 7px;
+  padding: 0 8px;
 }
+/* "Rảnh" is the calm default — not a filled pill, just muted text, so the eye
+   lands on the days/technicians that actually have appointments (the numbers). */
 .ccf-tl-weekday-sbadge--free {
-  background: var(--g-50);
+  background: transparent;
   color: var(--ink-3);
   font-weight: 500;
+  padding: 0;
+  min-width: 0;
 }
 .ccf-tl-weekday-sbadge--off {
   background: var(--danger-bg);
   color: var(--danger);
+  padding: 0 8px;
+}
+/* Dòng gộp "các KTV còn lại đều rảnh" — quiet, không cạnh tranh với các con số. */
+.ccf-tl-weekday-freeline {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-weight: 500;
 }
 
 /* ---------- timeline grid (prototype dòng 262-271) ---------- */
